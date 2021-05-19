@@ -14,11 +14,15 @@
 extern "C" {
 #endif
 
+#include <stdint.h>
+
 /* Opaque handle */
 typedef struct rave_handle rave_handle_t;
 
 int rave_init(rave_handle_t *self, const char *filename);
 int rave_close(rave_handle_t *self);
+
+void *rave_handle_fault(rave_handle_t *self, uintptr_t address);
 
 /* User allocates the opaque type */
 // TODO: can we static allocate this? I can't remember how..

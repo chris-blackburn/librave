@@ -18,28 +18,27 @@ int section_init(struct section *self, Elf *elf, GElf_Shdr *header,
 		return RAVE_ESECTIONDATA;
 	}
 
-	section_print(self);
 	return RAVE_SUCCESS;
 }
 
-int section_address(struct section *self)
+int section_address(const struct section *self)
 {
 	return self->header.sh_addr;
 }
 
-size_t section_offset(struct section *self)
+size_t section_offset(const struct section *self)
 {
 	return self->header.sh_offset;
 }
 
-size_t section_size(struct section *self)
+size_t section_size(const struct section *self)
 {
 	return self->header.sh_size;
 }
 
 #define PRINT_FIELD(N) do { \
 	printf("	%-20s 0x%jx\n", #N, (uintmax_t)self->header.sh_##N); } while (0)
-void section_print(struct section *self)
+void section_print(const struct section *self)
 {
 	if (NULL == self->elf) {
 		printf("Emtpy section\n");

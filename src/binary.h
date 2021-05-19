@@ -36,11 +36,11 @@ struct section {
 int section_init(struct section *self, Elf *elf, GElf_Shdr *header,
 	const char *name, Elf_Scn *scn);
 
-int section_address(struct section *self);
-size_t section_offset(struct section *self);
-size_t section_size(struct section *self);
+int section_address(const struct section *self);
+size_t section_offset(const struct section *self);
+size_t section_size(const struct section *self);
 
-void section_print(struct section *self);
+void section_print(const struct section *self);
 
 /* Elf segments */
 struct segment {
@@ -50,13 +50,14 @@ struct segment {
 
 int segment_init(struct segment *self, Elf *elf, GElf_Phdr *header);
 
-uintptr_t segment_address(struct segment *self);
-size_t segment_offset(struct segment *self);
-size_t segment_size(struct segment *self);
+uintptr_t segment_address(const struct segment *self);
+size_t segment_offset(const struct segment *self);
+size_t segment_filesz(const struct segment *self);
+size_t segment_memsz(const struct segment *self);
 
-int segment_contains(struct segment *self, uintptr_t address);
+int segment_contains(const struct segment *self, uintptr_t address);
 
-void segment_print(struct segment *self);
+void segment_print(const struct segment *self);
 
 /* Elf binary */
 struct binary {
@@ -66,15 +67,17 @@ struct binary {
 	/* File */
 	void *mapping;
 	int file_size;
-
-	/* Reference to the code */
-	struct section text;
 };
 
 int binary_init(struct binary *self, const char *filename);
 int binary_close(struct binary *self);
 
-void binary_print(struct binary *self);
+int binary_find_section(const struct binary *self, const char *target,
+	struct section *section);
+int binary_find_segment(const struct binary *self, uintptr_t address,
+	struct segment *segment);
+
+void binary_print(const struct binary *self);
 
 #ifdef __cplusplus
 }
