@@ -14,12 +14,11 @@ struct rave_handle {
 	/* We need the metadata stored in the text section */
 	struct section text;
 
-	/* The region which we handle faults in (matches the addressing within the
-	 * binary) */
+	/* True addresses of the code mapping and code addresses */
 	uintptr_t region_start, region_end;
 	uintptr_t code_start, code_end;
 
-	/* Code pages */
+	/* local copy of code pages */
 	void *code_pages;
 	size_t code_length;
 };
@@ -39,15 +38,16 @@ static int map_code_pages(rave_handle_t *self, struct section *text,
 	void *copy_src, *copy_dst;
 	size_t copy_size;
 
-	/* Determine the start address of the region - we don't necessary need the
-	 * entire segment, just the page which contains the start of the code. */
-	region_start = max(PAGE_DOWN(code_start),
-		segment_address(segment));
-	region_end = PAGE_UP(code_end);
+	/* Determine the start address of the region - we want to grab the whole
+	 * loadable segment so that we match with the elf (one VMA will be dedicated
+	 * to this executable region, which we want to match as we intend to serve
+	 * page faults for that VMA). */
+	region_start = segment_address(segment);
+	region_end = region_start + segment_memsz(segment);
 
 	self->code_length = (region_end - region_start);
 
-	/* There are 3 regions to copy into this region:
+	/* There are 3 regions to copy into this memory mapping:
 	 * 1. The region before the code
 	 * 2. The code
 	 * 3. The region after the code */
@@ -66,7 +66,7 @@ static int map_code_pages(rave_handle_t *self, struct section *text,
 	copy_size = code_start - region_start;
 	memcpy(copy_dst, copy_src, copy_size);
 
-	/* Copy the code */
+	/* Copy the code - again, no holes should be here */
 	DEBUG("Mapping code region");
 	copy_dst = OFFSET(copy_dst, copy_size);
 	copy_src = OFFSET(self->binary.mapping, section_offset(text));
@@ -75,7 +75,9 @@ static int map_code_pages(rave_handle_t *self, struct section *text,
 
 	/* Copy the final region - We need to be careful here. It's possible that
 	 * the in-memory size of the segment is greater than the file size, so we
-	 * can't just blindly copy memory from the file. */
+	 * can't just blindly copy memory from the file. Since we made an anonymous
+	 * mapping, the left over data will be initialized to zero, just like the
+	 * rest of the segment as defined by elf. */
 	DEBUG("Mapping region after code");
 	copy_dst = OFFSET(copy_dst, copy_size);
 	copy_src = OFFSET(self->binary.mapping, section_offset(text) +
