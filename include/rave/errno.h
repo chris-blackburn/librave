@@ -25,7 +25,8 @@
 	X(ESECTIONDATA, "Could not load Elf section data") \
 	X(ENOSEGMENT, "Could not find requested Elf segment") \
 	X(EPROGRAMHEADER, "Could not load an Elf program header") \
-	X(EMAPFAILED, "MMAP failure")
+	X(EMAPFAILED, "MMAP failure") \
+	X(ESEGNOTLOADABLE, "Tried to load an unloadable Elf segment")
 
 #define GENERIC_CODES \
 	X(FatalError, "Something bad happened")

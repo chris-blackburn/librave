@@ -12,7 +12,7 @@ int segment_init(struct segment *self, Elf *elf, GElf_Phdr *header)
 	return RAVE_SUCCESS;
 }
 
-uintptr_t segment_address(const struct segment *self)
+uintptr_t segment_vaddr(const struct segment *self)
 {
 	return self->header.p_vaddr;
 }
@@ -30,6 +30,11 @@ size_t segment_filesz(const struct segment *self)
 size_t segment_memsz(const struct segment *self)
 {
 	return self->header.p_memsz;
+}
+
+int segment_loadable(const struct segment *self)
+{
+	return !!(self->header.p_type & PT_LOAD);
 }
 
 int segment_contains(const struct segment *self, uintptr_t address)

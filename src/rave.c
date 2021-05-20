@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <inttypes.h>
 
 #include "rave.h"
 #include "rave/errno.h"
@@ -11,86 +12,65 @@
 struct rave_handle {
 	struct binary binary;
 
-	/* We need the metadata stored in the text section */
-	struct section text;
+	/* The memory mapping containing code pages */
+	struct {
+		/* Where in memory this segment will be located */
+		uintptr_t vaddr;
 
-	/* True addresses of the code mapping and code addresses */
-	uintptr_t region_start, region_end;
-	uintptr_t code_start, code_end;
+		/* offsets into the local mapping telling us where the text section is
+		 * located inside this loaded segment */
+		uintptr_t start;
+		uintptr_t end;
 
-	/* local copy of code pages */
-	void *code_pages;
-	size_t code_length;
+		/* The local mapping and the size in bytes (the size also corresponds to
+		 * the memory size of the loaded, containing segment) */
+		void *mapping;
+		size_t length;
+	} code;
 };
 
-/* In order to accurately map code pages, we need both the text section and the
- * segment containing the text section. In an elf segment, the on disk size can
- * be smaller than the in memory size. Additionally, segments are page-aligned,
- * while sections are not guaranteed to be page-aligned. So, in case the text
- * section does not perfectly fill a span of pages, we need to fill the rest of
- * that memory correctly (the segment tells us how to do that). */
+/* In order to accurately map code pages, we need the segment containing the
+ * text section. In an elf segment, the on disk size can be smaller than the in
+ * memory size. */
 static int map_code_pages(rave_handle_t *self, struct section *text,
 	struct segment *segment)
 {
-	uintptr_t region_start, region_end;
-	uintptr_t code_start = section_address(text),
-		  code_end = code_start + section_size(text);
 	void *copy_src, *copy_dst;
-	size_t copy_size;
+	void *mapping;
+	size_t length;
 
-	/* Determine the start address of the region - we want to grab the whole
-	 * loadable segment so that we match with the elf (one VMA will be dedicated
-	 * to this executable region, which we want to match as we intend to serve
-	 * page faults for that VMA). */
-	region_start = segment_address(segment);
-	region_end = region_start + segment_memsz(segment);
+	/* It's probably the wrong segment if it's not loadable... */
+	if (!segment_loadable(segment)) {
+		ERROR("Cannot map a non-loadable segment");
+		return RAVE_ESEGNOTLOADABLE;
+	}
 
-	self->code_length = (region_end - region_start);
+	length = PAGE_UP(segment_memsz(segment));
 
-	/* There are 3 regions to copy into this memory mapping:
-	 * 1. The region before the code
-	 * 2. The code
-	 * 3. The region after the code */
-	self->code_pages = mmap(NULL, self->code_length, PROT_READ | PROT_WRITE,
+	/* Since we are not faithfully mapping segments, we are mapping this as r/w
+	 * as we intend to modify code. */
+	mapping = mmap(NULL, length, PROT_READ | PROT_WRITE,
 			MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-	if (MAP_FAILED == self->code_pages) {
+	if (MAP_FAILED == mapping) {
 		ERROR("Could not create anonymous mapping for code pages");
-		self->code_pages = NULL;
 		return RAVE_EMAPFAILED;
 	}
 
-	/* Copy the first region - there should be no holes here... */
-	DEBUG("Mapping region before code");
-	copy_dst = PTR(self->code_pages);
+	/* Copy the segment data from the file, the rest will be zero-filled */
+	DEBUG("Mapping segment");
+	copy_dst = mapping;
 	copy_src = OFFSET(self->binary.mapping, segment_offset(segment));
-	copy_size = code_start - region_start;
-	memcpy(copy_dst, copy_src, copy_size);
+	memcpy(copy_dst, copy_src, length);
 
-	/* Copy the code - again, no holes should be here */
-	DEBUG("Mapping code region");
-	copy_dst = OFFSET(copy_dst, copy_size);
-	copy_src = OFFSET(self->binary.mapping, section_offset(text));
-	copy_size = section_size(text);
-	memcpy(copy_dst, copy_src, copy_size);
+	self->code.vaddr = segment_vaddr(segment);
+	self->code.start = section_offset(text) - segment_offset(segment);
+	self->code.end = self->code.start + section_size(text);
+	self->code.mapping = mapping;
+	self->code.length = length;
 
-	/* Copy the final region - We need to be careful here. It's possible that
-	 * the in-memory size of the segment is greater than the file size, so we
-	 * can't just blindly copy memory from the file. Since we made an anonymous
-	 * mapping, the left over data will be initialized to zero, just like the
-	 * rest of the segment as defined by elf. */
-	DEBUG("Mapping region after code");
-	copy_dst = OFFSET(copy_dst, copy_size);
-	copy_src = OFFSET(self->binary.mapping, section_offset(text) +
-		section_size(text));
-	copy_size = (segment_contains(segment, region_end)) ?
-		region_end - code_end :
-		segment_filesz(segment) - (code_end - segment_address(segment));
-	memcpy(copy_dst, copy_src, copy_size);
-
-	self->region_start = region_start;
-	self->region_end = region_end;
-	self->code_start = code_start;
-	self->code_end = code_end;
+	DEBUG("Locally loaded segment intended for: %"PRIxPTR" -> %"PRIxPTR
+		" (%zu pages)", self->code.vaddr, self->code.vaddr + self->code.length,
+		self->code.length / PAGESZ);
 
 	return RAVE_SUCCESS;
 }
@@ -98,26 +78,28 @@ static int map_code_pages(rave_handle_t *self, struct section *text,
 int rave_init(rave_handle_t *self, const char *filename)
 {
 	int rc;
+	struct section text;
 	struct segment segment;
 
 	DEBUG("Intializing rave with binary: %s", filename);
 
-	self->code_pages = NULL;
-	self->code_length = 0;
+	if (NULL == self) {
+		return 0;
+	}
 
 	rc = binary_init(&self->binary, filename);
 	if (rc != RAVE_SUCCESS) {
-		return rc;
+		goto err;
 	}
 
 	/* let's find the segment containing the code and map it */
-	rc = binary_find_section(&self->binary, ".text", &self->text);
+	rc = binary_find_section(&self->binary, ".text", &text);
 	if (rc != RAVE_SUCCESS) {
 		FATAL("Couldn't load the text section");
-		return rc;
+		goto err;
 	}
 
-	rc = binary_find_segment(&self->binary, section_address(&self->text),
+	rc = binary_find_segment(&self->binary, section_address(&text),
 		&segment);
 	if (rc != RAVE_SUCCESS) {
 		FATAL("Couldn't load the segment containing the text section");
@@ -126,24 +108,33 @@ int rave_init(rave_handle_t *self, const char *filename)
 
 	/* Now that we've loaded both the text section and it's containing segment,
 	 * we can map the pages. */
-	rc = map_code_pages(self, &self->text, &segment);
+	rc = map_code_pages(self, &text, &segment);
 	if (rc != RAVE_SUCCESS) {
 		FATAL("Could not map code pages");
 		return rc;
 	}
 
 	return RAVE_SUCCESS;
+err:
+	/* Make sure to close anything that has been initialized if we didn't make
+	 * it all the way through */
+	rave_close(self);
+	return rc;
 }
 
 int rave_close(rave_handle_t *self)
 {
+	if (NULL == self) {
+		return 0;
+	}
+
 	DEBUG("Closing rave handle...");
 
-	if (self->code_pages) {
-		if (munmap(self->code_pages, self->code_length) != 0) {
+	if (self->code.mapping) {
+		if (munmap(self->code.mapping, self->code.length) != 0) {
 			ERROR("Couldn't unmap file memory");
 		} else {
-			self->code_pages = NULL;
+			self->code.mapping = NULL;
 		}
 	}
 
@@ -157,15 +148,17 @@ size_t rave_handle_size(void)
 
 void *rave_handle_fault(rave_handle_t *self, uintptr_t address)
 {
-	size_t offset;
-
-	/* Check if the faulting address lies within the code section */
-	if (!CONTAINS(address, self->region_start, self->region_end))
-	{
+	if (NULL == self) {
 		return NULL;
 	}
 
-	/* return a pointer to the matching page */
-	offset = PAGE_DOWN(address) - self->region_start;
-	return OFFSET(self->code_pages, offset);
+	/* Check if the faulting address lies within the code pages */
+	if (CONTAINS(address, self->code.vaddr,
+		self->code.vaddr + self->code.length))
+	{
+		return OFFSET(self->code.mapping, PAGE_DOWN(address) -
+			self->code.vaddr);
+	}
+
+	return NULL;
 }
