@@ -23,6 +23,7 @@ int rave_init(rave_handle_t *self, const char *filename);
 int rave_close(rave_handle_t *self);
 
 void *rave_handle_fault(rave_handle_t *self, uintptr_t address);
+void *rave_get_code(rave_handle_t *self, size_t *length);
 
 /* User allocates the opaque type */
 // TODO: can we static allocate this? I can't remember how..

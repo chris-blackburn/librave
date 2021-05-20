@@ -4,7 +4,7 @@ all: tags cscope
 
 tags:
 	@echo "[GEN] tags"
-	@ctags -R --exclude=build
+	@ctags -R --exclude=build,test
 
 cscope:
 	@echo "[GEN] cscope"

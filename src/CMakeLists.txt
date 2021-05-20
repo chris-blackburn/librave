@@ -15,6 +15,7 @@ add_library(rave STATIC
 
 target_compile_options(rave PRIVATE
 	"-Wall"
+	"-Wextra"
 	"-Werror"
 )
 

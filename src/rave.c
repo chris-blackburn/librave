@@ -36,6 +36,8 @@ static int map_code_pages(rave_handle_t *self, struct section *text,
 	struct segment *segment)
 {
 	void *copy_src, *copy_dst;
+	size_t copy_size;
+
 	void *mapping;
 	size_t length;
 
@@ -60,7 +62,8 @@ static int map_code_pages(rave_handle_t *self, struct section *text,
 	DEBUG("Mapping segment");
 	copy_dst = mapping;
 	copy_src = OFFSET(self->binary.mapping, segment_offset(segment));
-	memcpy(copy_dst, copy_src, length);
+	copy_size = segment_filesz(segment);
+	memcpy(copy_dst, copy_src, copy_size);
 
 	self->code.vaddr = segment_vaddr(segment);
 	self->code.start = section_offset(text) - segment_offset(segment);
@@ -135,6 +138,7 @@ int rave_close(rave_handle_t *self)
 			ERROR("Couldn't unmap file memory");
 		} else {
 			self->code.mapping = NULL;
+			self->code.length = 0;
 		}
 	}
 
@@ -158,6 +162,20 @@ void *rave_handle_fault(rave_handle_t *self, uintptr_t address)
 	{
 		return OFFSET(self->code.mapping, PAGE_DOWN(address) -
 			self->code.vaddr);
+	}
+
+	return NULL;
+}
+
+void *rave_get_code(rave_handle_t *self, size_t *length)
+{
+	if (NULL == self) {
+		return NULL;
+	}
+
+	if (self->code.mapping && self->code.length) {
+		*length = self->code.length;
+		return self->code.mapping;
 	}
 
 	return NULL;

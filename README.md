@@ -1,5 +1,7 @@
 # RAVE
 
+Library to assist in dynamically transforming code through static analysis.
+
 ## To build:
 * `cmake -B build`
 * `cd build`
