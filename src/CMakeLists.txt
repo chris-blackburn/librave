@@ -4,6 +4,10 @@ find_library(ELF elf)
 if(NOT ELF)
 	message(FATAL_ERROR "libelf is required for this project")
 endif()
+find_library(DWARF dwarf)
+if(NOT DWARF)
+	message(FATAL_ERROR "libdwarf is required for this project")
+endif()
 
 # Library
 add_library(rave STATIC
@@ -11,6 +15,7 @@ add_library(rave STATIC
 	binary.c
 	section.c
 	segment.c
+	metadata.c
 )
 
 target_compile_options(rave PRIVATE
@@ -20,8 +25,8 @@ target_compile_options(rave PRIVATE
 )
 
 target_link_libraries(rave PRIVATE
-	-static
 	${ELF}
+	${DWARF}
 	${ZLIB_LIBRARIES}
 )
 

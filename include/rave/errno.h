@@ -12,28 +12,30 @@
 
 /* Error codes */
 #define BINARY_CODES \
-	X(EELFINIT, "Could not initialize libelf") \
-	X(EELFMEMORY, "Could not load elf from memory") \
-	X(EELFNOTSUPPORTED, "Could not initialize libelf") \
-	X(EELFHEADER, "Could not load Elf header") \
-	X(EFILEOPEN, "Could not open file") \
-	X(EFILESTAT, "Could not stat file") \
+	X(EELF_INIT, "Could not initialize libelf") \
+	X(EELF_MEMORY, "Could not load elf from memory") \
+	X(EELF_NOT_SUPPORTED, "Could not initialize libelf") \
+	X(EELF_HEADER, "Could not load Elf header") \
+	X(EFILE_OPEN, "Could not open file") \
+	X(EFILE_STAT, "Could not stat file") \
 	X(EMAPPING, "Could not mmap file") \
-	X(EFILECLOSE, "Could not close file") \
-	X(ESECTIONHEADER, "Could not load Elf section header") \
-	X(ENOSECTION, "Could not find requested Elf section") \
-	X(ESECTIONDATA, "Could not load Elf section data") \
-	X(ENOSEGMENT, "Could not find requested Elf segment") \
-	X(EPROGRAMHEADER, "Could not load an Elf program header") \
-	X(EMAPFAILED, "MMAP failure") \
-	X(ESEGNOTLOADABLE, "Tried to load an unloadable Elf segment")
+	X(EFILE_CLOSE, "Could not close file") \
+	X(ESECTION_HEADER, "Could not load Elf section header") \
+	X(ENO_SECTION, "Could not find requested Elf section") \
+	X(ESECTION_DATA, "Could not load Elf section data") \
+	X(ENO_SEGMENT, "Could not find requested Elf segment") \
+	X(EPROGRAM_HEADER, "Could not load an Elf program header") \
+	X(EMAP_FAILED, "MMAP failure") \
+	X(ESEG_NOT_LOADABLE, "Tried to load an unloadable Elf segment") \
+	X(EDWARF, "Dwarf error - investigate dwarf error codes")
 
 #define GENERIC_CODES \
-	X(FatalError, "Something bad happened")
+	X(EFATAL, "Something bad happened") \
+	X(EINVAL, "Invalid parameter")
 
 typedef enum {
-	RAVE_SUCCESS = 0,
-#define X(code, _) RAVE_##code,
+	RAVE__SUCCESS = 0,
+#define X(code, _) RAVE__##code,
 	BINARY_CODES
 	GENERIC_CODES
 #undef X

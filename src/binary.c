@@ -24,11 +24,11 @@ static int init_libelf()
 		initialized = 1;
 
 		if (elf_version(EV_CURRENT) == EV_NONE) {
-			return RAVE_EELFINIT;
+			return RAVE__EELF_INIT;
 		}
 	}
 
-	return RAVE_SUCCESS;
+	return RAVE__SUCCESS;
 }
 
 /* Create a memory mapping of the binary */
@@ -39,12 +39,12 @@ static int map_file(struct binary *self, const char *filename)
 
 	if ((fd = open(filename, O_RDONLY)) == -1) {
 		FATAL("Could not open file %s", filename);
-		return RAVE_EFILEOPEN;
+		return RAVE__EFILE_OPEN;
 	}
 
 	if ((fstat(fd, &statbuf)) == -1) {
 		FATAL("Could not stat file %s", filename);
-		return RAVE_EFILESTAT;
+		return RAVE__EFILE_STAT;
 	}
 
 	self->file_size = statbuf.st_size;
@@ -52,15 +52,15 @@ static int map_file(struct binary *self, const char *filename)
 	self->mapping = mmap(NULL, self->file_size, PROT_READ, MAP_SHARED, fd, 0);
 	if (self->mapping == NULL) {
 		FATAL("Could not mmap file %s", filename);
-		return RAVE_EMAPPING;
+		return RAVE__EMAPPING;
 	}
 
 	if (close(fd) == -1) {
 		ERROR("Could not close file %s", filename);
-		return RAVE_EFILECLOSE;
+		return RAVE__EFILE_CLOSE;
 	}
 
-	return RAVE_SUCCESS;
+	return RAVE__SUCCESS;
 }
 
 int binary_init(struct binary *self, const char *filename)
@@ -85,7 +85,7 @@ int binary_init(struct binary *self, const char *filename)
 	/* Init the elf file */
 	self->elf = elf_memory((char *)self->mapping, self->file_size);
 	if (self->elf == NULL) {
-		return RAVE_EELFMEMORY;
+		return RAVE__EELF_MEMORY;
 	}
 
 	/* Make sure we have a valid elf object */
@@ -95,32 +95,32 @@ int binary_init(struct binary *self, const char *filename)
 		gelf_getclass(self->elf) != ELFCLASS64)
 	{
 		FATAL("Only 64-bit elfs are supported at this time");
-		return RAVE_EELFNOTSUPPORTED;
+		return RAVE__EELF_NOT_SUPPORTED;
 	}
 
 	/* Now, we can get the headers and get the target arch */
 	if (gelf_getehdr(self->elf, &self->header) != &self->header) {
-		return RAVE_EELFHEADER;
+		return RAVE__EELF_HEADER;
 	}
 
 	/* The elf must be an executable. */
 	if (self->header.e_type != ET_EXEC) {
 		FATAL("rave only supports executable elfs");
-		return RAVE_EELFNOTSUPPORTED;
+		return RAVE__EELF_NOT_SUPPORTED;
 	}
 
 	/* Make sure we support this arch */
 	if (!check_arch(self->header.e_machine)) {
-		return RAVE_EELFNOTSUPPORTED;
+		return RAVE__EELF_NOT_SUPPORTED;
 	}
 
-	return RAVE_SUCCESS;
+	return RAVE__SUCCESS;
 }
 
 int binary_close(struct binary *self)
 {
 	if (NULL == self) {
-		return RAVE_SUCCESS;
+		return RAVE__SUCCESS;
 	}
 
 	if (self->elf) {
@@ -137,7 +137,7 @@ int binary_close(struct binary *self)
 	}
 
 	DEBUG("Binary unloaded");
-	return RAVE_SUCCESS;
+	return RAVE__SUCCESS;
 }
 
 int binary_find_section(const struct binary *self, const char *target,
@@ -149,7 +149,7 @@ int binary_find_section(const struct binary *self, const char *target,
 
 	for (size_t i = 1; (scn = elf_nextscn(self->elf, scn)); i++) {
 		if (gelf_getshdr(scn, &shdr) != &shdr) {
-			return RAVE_ESECTIONHEADER;
+			return RAVE__ESECTION_HEADER;
 		}
 
 		iter = elf_strptr(self->elf, self->header.e_shstrndx, shdr.sh_name);
@@ -165,7 +165,7 @@ int binary_find_section(const struct binary *self, const char *target,
 	}
 
 	ERROR("Section named %s not found", target);
-	return RAVE_ENOSECTION;
+	return RAVE__ENO_SECTION;
 }
 
 int binary_find_segment(const struct binary *self, uintptr_t address,
@@ -175,21 +175,21 @@ int binary_find_segment(const struct binary *self, uintptr_t address,
 
 	for (size_t i = 0; i < self->header.e_phnum; i++) {
 		if (gelf_getphdr(self->elf, i, &phdr) != &phdr) {
-			return RAVE_EPROGRAMHEADER;
+			return RAVE__EPROGRAM_HEADER;
 		}
 
-		if (segment_init(segment, self->elf, &phdr) != RAVE_SUCCESS) {
+		if (segment_init(segment, self->elf, &phdr) != RAVE__SUCCESS) {
 			WARN("Failed to initialize segment... continuing search");
 			continue;
 		}
 
 		/* Check if it's the segment containing the target address */
 		if (segment_contains(segment, address)) {
-			return RAVE_SUCCESS;
+			return RAVE__SUCCESS;
 		}
 	}
 
-	return RAVE_ENOSEGMENT;
+	return RAVE__ENO_SEGMENT;
 }
 
 #define PRINT_FIELD(N) do { \

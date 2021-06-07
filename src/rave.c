@@ -44,7 +44,7 @@ static int map_code_pages(rave_handle_t *self, struct section *text,
 	/* It's probably the wrong segment if it's not loadable... */
 	if (!segment_loadable(segment)) {
 		ERROR("Cannot map a non-loadable segment");
-		return RAVE_ESEGNOTLOADABLE;
+		return RAVE__ESEG_NOT_LOADABLE;
 	}
 
 	length = PAGE_UP(segment_memsz(segment));
@@ -55,7 +55,7 @@ static int map_code_pages(rave_handle_t *self, struct section *text,
 			MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	if (MAP_FAILED == mapping) {
 		ERROR("Could not create anonymous mapping for code pages");
-		return RAVE_EMAPFAILED;
+		return RAVE__EMAP_FAILED;
 	}
 
 	/* Copy the segment data from the file, the rest will be zero-filled */
@@ -75,7 +75,7 @@ static int map_code_pages(rave_handle_t *self, struct section *text,
 		" (%zu pages)", self->code.vaddr, self->code.vaddr + self->code.length,
 		self->code.length / PAGESZ);
 
-	return RAVE_SUCCESS;
+	return RAVE__SUCCESS;
 }
 
 int rave_init(rave_handle_t *self, const char *filename)
@@ -83,6 +83,7 @@ int rave_init(rave_handle_t *self, const char *filename)
 	int rc;
 	struct section text;
 	struct segment segment;
+	struct metadata;
 
 	DEBUG("Intializing rave with binary: %s", filename);
 
@@ -91,33 +92,48 @@ int rave_init(rave_handle_t *self, const char *filename)
 	}
 
 	rc = binary_init(&self->binary, filename);
-	if (rc != RAVE_SUCCESS) {
+	if (rc != RAVE__SUCCESS) {
 		goto err;
 	}
 
 	/* let's find the segment containing the code and map it */
 	rc = binary_find_section(&self->binary, ".text", &text);
-	if (rc != RAVE_SUCCESS) {
+	if (rc != RAVE__SUCCESS) {
 		FATAL("Couldn't load the text section");
 		goto err;
 	}
 
 	rc = binary_find_segment(&self->binary, section_address(&text),
 		&segment);
-	if (rc != RAVE_SUCCESS) {
+	if (rc != RAVE__SUCCESS) {
 		FATAL("Couldn't load the segment containing the text section");
+		return rc;
+	}
+
+	/* Load metadata about the binary*/
+	rc = metadata_init(NULL, &self->binary);
+	if (rc != RAVE__SUCCESS) {
+		FATAL("Could not initialize binary metadata");
 		return rc;
 	}
 
 	/* Now that we've loaded both the text section and it's containing segment,
 	 * we can map the pages. */
 	rc = map_code_pages(self, &text, &segment);
-	if (rc != RAVE_SUCCESS) {
+	if (rc != RAVE__SUCCESS) {
 		FATAL("Could not map code pages");
 		return rc;
 	}
 
-	return RAVE_SUCCESS;
+	/* With both the code and metadata loaded, we can now analyze the binary to
+	 * prune and list functions */
+	// TODO: Get functions
+
+	/* Finally, with the list of randomizable functions, we can do the thing */
+	// TODO:
+
+
+	return RAVE__SUCCESS;
 err:
 	/* Make sure to close anything that has been initialized if we didn't make
 	 * it all the way through */

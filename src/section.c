@@ -15,10 +15,10 @@ int section_init(struct section *self, Elf *elf, GElf_Shdr *header,
 	self->data = elf_getdata(scn, NULL);
 	if (NULL == self->data) {
 		FATAL("Could not load section data for %s", name);
-		return RAVE_ESECTIONDATA;
+		return RAVE__ESECTION_DATA;
 	}
 
-	return RAVE_SUCCESS;
+	return RAVE__SUCCESS;
 }
 
 int section_address(const struct section *self)

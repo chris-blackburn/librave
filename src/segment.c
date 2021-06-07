@@ -9,7 +9,7 @@ int segment_init(struct segment *self, Elf *elf, GElf_Phdr *header)
 	self->elf = elf;
 	memcpy(&self->header, header, sizeof(*header));
 
-	return RAVE_SUCCESS;
+	return RAVE__SUCCESS;
 }
 
 uintptr_t segment_vaddr(const struct segment *self)
