@@ -6,11 +6,21 @@
 #include "rave.h"
 #include "rave/errno.h"
 #include "binary.h"
+#include "metadata.h"
 #include "util.h"
 #include "log.h"
 
+#include <stdlib.h>
+#define rave_malloc(x) malloc(x)
+#define rave_free(x) free(x)
+
+/* Use dwarf metadata */
+static struct metadata_op *mop = &metadata_dwarf;
+
 struct rave_handle {
 	struct binary binary;
+
+	metadata_t metadata;
 
 	/* The memory mapping containing code pages */
 	struct {
@@ -29,10 +39,23 @@ struct rave_handle {
 	} code;
 };
 
+struct rave_handle * rave_create(void)
+{
+	return rave_malloc(sizeof(struct rave_handle));
+}
+
+void rave_destroy(struct rave_handle *self)
+{
+	if (NULL != self) {
+		mop->destroy(self->metadata);
+		rave_free(self);
+	}
+}
+
 /* In order to accurately map code pages, we need the segment containing the
  * text section. In an elf segment, the on disk size can be smaller than the in
  * memory size. */
-static int map_code_pages(rave_handle_t *self, struct section *text,
+static int map_code_pages(struct rave_handle *self, struct section *text,
 	struct segment *segment)
 {
 	void *copy_src, *copy_dst;
@@ -78,12 +101,11 @@ static int map_code_pages(rave_handle_t *self, struct section *text,
 	return RAVE__SUCCESS;
 }
 
-int rave_init(rave_handle_t *self, const char *filename)
+int rave_init(struct rave_handle *self, const char *filename)
 {
 	int rc;
 	struct section text;
 	struct segment segment;
-	struct metadata;
 
 	DEBUG("Intializing rave with binary: %s", filename);
 
@@ -111,7 +133,13 @@ int rave_init(rave_handle_t *self, const char *filename)
 	}
 
 	/* Load metadata about the binary*/
-	rc = metadata_init(NULL, &self->binary);
+	self->metadata = mop->create();
+	if (NULL == self->metadata) {
+		FATAL("No memory for metadata");
+		return RAVE__ENOMEM;
+	}
+
+	rc = mop->init(self->metadata, &self->binary);
 	if (rc != RAVE__SUCCESS) {
 		FATAL("Could not initialize binary metadata");
 		return rc;
@@ -127,11 +155,10 @@ int rave_init(rave_handle_t *self, const char *filename)
 
 	/* With both the code and metadata loaded, we can now analyze the binary to
 	 * prune and list functions */
-	// TODO: Get functions
+	mop->list_functions(self->metadata);
 
 	/* Finally, with the list of randomizable functions, we can do the thing */
 	// TODO:
-
 
 	return RAVE__SUCCESS;
 err:
@@ -141,8 +168,10 @@ err:
 	return rc;
 }
 
-int rave_close(rave_handle_t *self)
+int rave_close(struct rave_handle *self)
 {
+	int rc = 0;
+
 	if (NULL == self) {
 		return 0;
 	}
@@ -158,15 +187,12 @@ int rave_close(rave_handle_t *self)
 		}
 	}
 
-	return binary_close(&self->binary);
+	rc |= mop->close(self->metadata);
+	rc |= binary_close(&self->binary);
+	return rc;
 }
 
-size_t rave_handle_size(void)
-{
-	return sizeof(struct rave_handle);
-}
-
-void *rave_handle_fault(rave_handle_t *self, uintptr_t address)
+void *rave_handle_fault(struct rave_handle *self, uintptr_t address)
 {
 	if (NULL == self) {
 		return NULL;
@@ -183,7 +209,7 @@ void *rave_handle_fault(rave_handle_t *self, uintptr_t address)
 	return NULL;
 }
 
-void *rave_get_code(rave_handle_t *self, size_t *length)
+void *rave_get_code(struct rave_handle *self, size_t *length)
 {
 	if (NULL == self) {
 		return NULL;

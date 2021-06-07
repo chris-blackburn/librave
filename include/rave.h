@@ -17,17 +17,16 @@ extern "C" {
 #include <stdint.h>
 
 /* Opaque handle */
-typedef struct rave_handle rave_handle_t;
+typedef struct rave_handle * rave_handle_t;
 
-int rave_init(rave_handle_t *self, const char *filename);
-int rave_close(rave_handle_t *self);
+rave_handle_t rave_create(void);
+void rave_destroy(rave_handle_t self);
 
-void *rave_handle_fault(rave_handle_t *self, uintptr_t address);
-void *rave_get_code(rave_handle_t *self, size_t *length);
+int rave_init(rave_handle_t self, const char *filename);
+int rave_close(rave_handle_t self);
 
-/* User allocates the opaque type */
-// TODO: can we static allocate this? I can't remember how..
-size_t rave_handle_size(void);
+void *rave_handle_fault(rave_handle_t self, uintptr_t address);
+void *rave_get_code(rave_handle_t self, size_t *length);
 
 #ifdef __cplusplus
 }

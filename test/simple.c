@@ -3,7 +3,7 @@
 #include <rave.h>
 
 int main(int argc, char **argv) {
-	rave_handle_t *rh = malloc(rave_handle_size());
+	rave_handle_t rh = rave_create();
 	int rc;
 
 	if (argc != 2) {
@@ -23,7 +23,7 @@ int main(int argc, char **argv) {
 		goto err;
 	}
 
-	free(rh);
+	rave_destroy(rh);
 
 	printf("Success!\n");
 	return EXIT_SUCCESS;

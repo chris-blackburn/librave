@@ -31,7 +31,8 @@
 
 #define GENERIC_CODES \
 	X(EFATAL, "Something bad happened") \
-	X(EINVAL, "Invalid parameter")
+	X(EINVAL, "Invalid parameter") \
+	X(ENOMEM, "No memory left")
 
 typedef enum {
 	RAVE__SUCCESS = 0,

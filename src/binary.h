@@ -80,14 +80,6 @@ int binary_find_segment(const struct binary *self, uintptr_t address,
 
 void binary_print(const struct binary *self);
 
-/* Metadata abstraction - this information is either generated from the binary,
- * or gathered from extra information already within the binary. */
-struct metadata;
-int metadata_init(struct metadata *self, struct binary *binary);
-int metadata_close(struct metadata *self);
-
-int metadata_list_functions(struct metadata *self);
-
 #ifdef __cplusplus
 }
 #endif

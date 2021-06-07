@@ -1,9 +1,13 @@
 #include <libdwarf/dwarf.h>
 #include <libdwarf/libdwarf.h>
 
-#include "binary.h"
+#include "metadata.h"
 #include "rave/errno.h"
 #include "log.h"
+
+#include <stdlib.h>
+#define rave_malloc(x) malloc(x)
+#define rave_free(x) free(x)
 
 struct metadata {
 	struct binary *binary;
@@ -11,7 +15,7 @@ struct metadata {
 	Dwarf_Debug dbg;
 };
 
-int metadata_list_functions(struct metadata *self)
+static int list_functions(struct metadata *self)
 {
 	Dwarf_Debug dbg = self->dbg;
 	Dwarf_Unsigned cu_header_length = 0;
@@ -90,6 +94,8 @@ int metadata_list_functions(struct metadata *self)
 				Dwarf_Addr lo, hi;
 				Dwarf_Half form = 0;
 				enum Dwarf_Form_Class formclass = 0;
+
+				// TODO: err check
 				rc = dwarf_lowpc(child_die, &lo, &err);
 				rc = dwarf_highpc_b(child_die, &hi, &form, &formclass, &err);
 
@@ -110,16 +116,13 @@ dwarf_err:
 	return RAVE__EDWARF;
 }
 
-int metadata_init(struct metadata *self, struct binary *binary)
+static int init(struct metadata *self, struct binary *binary)
 {
 	Dwarf_Debug dbg = 0;
 	Dwarf_Error err = 0;
-	// TODO: remove
-	struct metadata m;
-	self = &m;
 
 	if (NULL == self) {
-		//return RAVE__EINVAL;
+		return RAVE__EINVAL;
 	}
 
 	if (dwarf_elf_init(binary->elf, DW_DLC_READ, 0, 0, &dbg, &err) !=
@@ -134,26 +137,42 @@ int metadata_init(struct metadata *self, struct binary *binary)
 	self->dbg = dbg;
 	self->binary = binary;
 
-	// TODO: remove
-	return metadata_list_functions(self);
-
 	return RAVE__SUCCESS;
 }
 
-int metadata_close(struct metadata *self)
+static int close(struct metadata *self)
 {
-	Dwarf_Debug dbg = self->dbg;
 	Dwarf_Error err = NULL;
 
 	if (NULL == self) {
 		return RAVE__EINVAL;
 	}
 
-    if (dwarf_finish(dbg, &err) != DW_DLV_OK) {
+    if (dwarf_finish(self->dbg, &err) != DW_DLV_OK) {
 		ERROR("Failed to close dwarf");
-		dwarf_dealloc(dbg, err, DW_DLA_ERROR);
+		dwarf_dealloc(self->dbg, err, DW_DLA_ERROR);
         return RAVE__EDWARF;
     }
 
 	return RAVE__SUCCESS;
 }
+
+static struct metadata *create()
+{
+	return rave_malloc(sizeof(struct metadata));
+}
+
+static void destroy(struct metadata *self)
+{
+	if (NULL != self) {
+		rave_free(self);
+	}
+}
+
+struct metadata_op metadata_dwarf = {
+	.create = create,
+	.destroy = destroy,
+	.init = init,
+	.close = close,
+	.list_functions = list_functions,
+};

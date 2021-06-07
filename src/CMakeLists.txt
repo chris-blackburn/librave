@@ -15,7 +15,7 @@ add_library(rave STATIC
 	binary.c
 	section.c
 	segment.c
-	metadata.c
+	metadata_dwarf.c
 )
 
 target_compile_options(rave PRIVATE
