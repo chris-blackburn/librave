@@ -7,12 +7,9 @@
 #include "rave/errno.h"
 #include "binary.h"
 #include "metadata.h"
+#include "memory.h"
 #include "util.h"
 #include "log.h"
-
-#include <stdlib.h>
-#define rave_malloc(x) malloc(x)
-#define rave_free(x) free(x)
 
 /* Use dwarf metadata */
 static struct metadata_op *mop = &metadata_dwarf;
@@ -154,8 +151,8 @@ int rave_init(struct rave_handle *self, const char *filename)
 	}
 
 	/* With both the code and metadata loaded, we can now analyze the binary to
-	 * prune and list functions */
-	mop->list_functions(self->metadata);
+	 * get and prune functions */
+	mop->get_functions(self->metadata);
 
 	/* Finally, with the list of randomizable functions, we can do the thing */
 	// TODO:

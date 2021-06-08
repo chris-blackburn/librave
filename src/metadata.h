@@ -24,7 +24,8 @@ struct metadata_op {
 	int (*init)(metadata_t self, struct binary *binary);
 	int (*close)(metadata_t self);
 
-	int (*list_functions)(metadata_t self);
+	/* Get a list of functions to be processed */
+	int (*get_functions)(metadata_t self);
 };
 
 extern struct metadata_op metadata_dwarf;
