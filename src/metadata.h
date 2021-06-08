@@ -15,6 +15,9 @@
 #define __METADATA_H_
 
 #include "binary.h"
+#include "function.h"
+
+typedef int (*foreach_function_cb)(const struct function *, void *);
 
 typedef struct metadata * metadata_t;
 struct metadata_op {
@@ -24,8 +27,9 @@ struct metadata_op {
 	int (*init)(metadata_t self, struct binary *binary);
 	int (*close)(metadata_t self);
 
-	/* Get a list of functions to be processed */
-	int (*get_functions)(metadata_t self);
+	/* Loop through all functions, once metadata is retrieved, the callback is
+	 * called. */
+	int (*foreach_function)(metadata_t self, foreach_function_cb cb, void *arg);
 };
 
 extern struct metadata_op metadata_dwarf;

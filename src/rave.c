@@ -6,6 +6,7 @@
 #include "rave.h"
 #include "rave/errno.h"
 #include "binary.h"
+#include "function.h"
 #include "metadata.h"
 #include "memory.h"
 #include "util.h"
@@ -35,6 +36,26 @@ struct rave_handle {
 		size_t length;
 	} code;
 };
+
+/* Callback used when iterating through function metadata. Returns success
+ * unless there is a fatal error (e.g. nomem) */
+static int process_function(const struct function *function, void *arg)
+{
+	__attribute__((unused))
+	struct rave_handle *self = (struct rave_handle *)arg;
+
+	DEBUG("Processing function at vaddr %"PRIxPTR, function->lo);
+
+	/* Find the function in the mapped code region */
+
+	/* Follow the stack delta to verify metadata was accurate */
+
+	/* Mark the prologue and epilogues */
+
+	/* Transform the function */
+
+	return RAVE__SUCCESS;
+}
 
 struct rave_handle * rave_create(void)
 {
@@ -151,11 +172,12 @@ int rave_init(struct rave_handle *self, const char *filename)
 	}
 
 	/* With both the code and metadata loaded, we can now analyze the binary to
-	 * get and prune functions */
-	mop->get_functions(self->metadata);
-
-	/* Finally, with the list of randomizable functions, we can do the thing */
-	// TODO:
+	 * get, prune, and transform functions */
+	rc = mop->foreach_function(self->metadata, process_function, self);
+	if (rc != RAVE__SUCCESS) {
+		FATAL("An error occured while processing metadata");
+		return rc;
+	}
 
 	return RAVE__SUCCESS;
 err:

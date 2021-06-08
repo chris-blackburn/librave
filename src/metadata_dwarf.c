@@ -6,19 +6,22 @@
 #include "rave/errno.h"
 #include "log.h"
 
+
 struct metadata {
 	struct binary *binary;
 
 	Dwarf_Debug dbg;
 };
 
-static int get_function_hilo(struct metadata *self, Dwarf_Die die)
+static int get_function_hilo(struct metadata *self, Dwarf_Die die,
+	foreach_function_cb cb, void *arg)
 {
 	Dwarf_Debug dbg = self->dbg;
 	Dwarf_Addr lo, hi;
 	Dwarf_Half form = 0;
 	enum Dwarf_Form_Class formclass = 0;
 	Dwarf_Error err;
+	struct function function;
 	int rc;
 
 	rc = dwarf_lowpc(die, &lo, &err);
@@ -36,9 +39,9 @@ static int get_function_hilo(struct metadata *self, Dwarf_Die die)
 		hi += lo;
 	}
 
-	// TODO: Set in function struct instead of print
-	DEBUG("func: %llx <-> %llx", lo, hi);
-	return RAVE__SUCCESS;
+	function.hi = hi;
+	function.lo = lo;
+	return cb(&function, arg);
 dwarf_err:
 	ERROR("dwarf: %s", dwarf_errmsg(err));
 	dwarf_dealloc(dbg, err, DW_DLA_ERROR);
@@ -99,7 +102,7 @@ dwarf_err:
 #endif
 
 static int process_die_and_siblings(struct metadata *self, Dwarf_Die cu_die,
-	Dwarf_Bool is_info)
+	Dwarf_Bool is_info, foreach_function_cb cb, void *arg)
 {
 	Dwarf_Debug dbg = self->dbg;
 	Dwarf_Die next_die = 0;
@@ -125,7 +128,7 @@ static int process_die_and_siblings(struct metadata *self, Dwarf_Die cu_die,
 
 		/* Get relevant info */
 		if (tag == DW_TAG_subprogram) {
-			rc = get_function_hilo(self, cur_die);
+			rc = get_function_hilo(self, cur_die, cb, arg);
 			if (rc != RAVE__SUCCESS) {
 				dwarf_dealloc(dbg, cur_die, DW_DLA_DIE);
 				return rc;
@@ -144,7 +147,8 @@ dwarf_err:
 	return RAVE__EDWARF;
 }
 
-static int get_functions(struct metadata *self)
+static int foreach_function(struct metadata *self, foreach_function_cb cb,
+	void *arg)
 {
 	Dwarf_Debug dbg = self->dbg;
 	Dwarf_Unsigned cu_header_length = 0;
@@ -195,7 +199,7 @@ static int get_functions(struct metadata *self)
 		}
 
 		/* Process this cu to find any functions and grab relevant metadata */
-		rc = process_die_and_siblings(self, cu_die, is_info);
+		rc = process_die_and_siblings(self, cu_die, is_info, cb, arg);
 		dwarf_dealloc(dbg, cu_die, DW_DLA_DIE);
 		if (rc != RAVE__SUCCESS) {
 			return rc;
@@ -267,5 +271,5 @@ struct metadata_op metadata_dwarf = {
 	.destroy = destroy,
 	.init = init,
 	.close = close,
-	.get_functions = get_functions,
+	.foreach_function = foreach_function,
 };
