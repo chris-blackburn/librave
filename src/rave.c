@@ -8,6 +8,7 @@
 #include "binary.h"
 #include "function.h"
 #include "metadata.h"
+#include "transform.h"
 #include "memory.h"
 #include "util.h"
 #include "log.h"
@@ -21,13 +22,14 @@ struct rave_handle {
 	metadata_t metadata;
 
 	/* The memory mapping containing code pages */
+	// TODO: re-org because this is confusing
 	struct {
 		/* Where in memory this segment will be located */
 		uintptr_t vaddr;
 
 		/* offsets into the local mapping telling us where the text section is
 		 * located inside this loaded segment */
-		uintptr_t start;
+		size_t start;
 		uintptr_t end;
 
 		/* The local mapping and the size in bytes (the size also corresponds to
@@ -41,16 +43,40 @@ struct rave_handle {
  * unless there is a fatal error (e.g. nomem) */
 static int process_function(const struct function *function, void *arg)
 {
-	__attribute__((unused))
 	struct rave_handle *self = (struct rave_handle *)arg;
+	void *pf;
+	int rc = 0;
 
-	DEBUG("Processing function at vaddr %"PRIxPTR, function->lo);
+	DEBUG("Processing function @ %"PRIxPTR", size = %zu", function->lo,
+		function->hi - function->lo);
 
-	/* Find the function in the mapped code region */
+	/* We have to make sure the function addresses are virtually contained by
+	 * the text section */
+	{
+		uintptr_t text;
+		size_t textsz;
 
-	/* Follow the stack delta to verify metadata was accurate */
+		text = self->code.vaddr + self->code.start;
+		textsz = self->code.end - self->code.start;
 
-	/* Mark the prologue and epilogues */
+		/* Find the function in the mapped code region */
+		rc |= !CONTAINS(function->lo, text, text + textsz);
+		rc |= !CONTAINS(function->hi, text, text + textsz);
+		if (rc) {
+			WARN("Can't modify function - not in text section");
+			return RAVE__SUCCESS;
+		}
+	}
+
+	/* Get a pointer to the locally-loaded target function */
+	pf = OFFSET(self->code.mapping, function->lo - self->code.vaddr);
+
+	/* Let the transformer verify the function */
+	rc = transform_is_safe(NULL, function->lo, pf, function->hi - function->lo);
+	if (rc != RAVE__SUCCESS) {
+		WARN("Could not verify function @ %"PRIxPTR, function->lo);
+		return RAVE__SUCCESS;
+	}
 
 	/* Transform the function */
 
@@ -129,6 +155,11 @@ int rave_init(struct rave_handle *self, const char *filename)
 
 	if (NULL == self) {
 		return 0;
+	}
+
+	rc = transform_init(NULL);
+	if (rc != RAVE__SUCCESS) {
+		goto err;
 	}
 
 	rc = binary_init(&self->binary, filename);

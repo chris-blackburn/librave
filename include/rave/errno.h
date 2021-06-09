@@ -27,7 +27,8 @@
 	X(EPROGRAM_HEADER, "Could not load an Elf program header") \
 	X(EMAP_FAILED, "MMAP failure") \
 	X(ESEG_NOT_LOADABLE, "Tried to load an unloadable Elf segment") \
-	X(EDWARF, "Dwarf error - investigate dwarf error codes")
+	X(EDWARF, "Dwarf error - investigate dwarf error codes") \
+	X(ETRANSFORM, "transform error")
 
 #define GENERIC_CODES \
 	X(EFATAL, "Something bad happened") \

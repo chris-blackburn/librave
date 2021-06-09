@@ -9,7 +9,7 @@ tags:
 cscope:
 	@echo "[GEN] cscope"
 	@find . \
-		\( -path "./src/*" -o -path "./include/*" \) \
+		\( -path "./src/*" -o -path "./include/*" -o -path "./deps/DynamoRIO/include/*" \) \
 		\( -name "*.[ch]" -o -name "*.cpp" \) \
 		-print > $(PWD)/cscope.files
 	@cscope -b -q -k

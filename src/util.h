@@ -30,5 +30,7 @@
 	__typeof__ (b) _b = (b); \
 	_a > _b ? _a : _b; })
 
+#define UNUSED __attribute__((unused))
+
 #endif /* __UTIL_H_ */
 
