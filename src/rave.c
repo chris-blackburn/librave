@@ -6,6 +6,7 @@
 #include "rave.h"
 #include "rave/errno.h"
 #include "binary.h"
+#include "window.h"
 #include "function.h"
 #include "metadata.h"
 #include "transform.h"
@@ -22,20 +23,21 @@ struct rave_handle {
 	metadata_t metadata;
 
 	/* The memory mapping containing code pages */
-	// TODO: re-org because this is confusing
 	struct {
-		/* Where in memory this segment will be located */
-		uintptr_t vaddr;
+		/* The entire loadable code segment. I load the whole segment (and not
+		 * just the text section) because it's just easier to serve page faults
+		 * when I don't have fragmented regions of memory. */
+		struct window segment;
 
-		/* offsets into the local mapping telling us where the text section is
-		 * located inside this loaded segment */
-		size_t start;
-		uintptr_t end;
-
-		/* The local mapping and the size in bytes (the size also corresponds to
-		 * the memory size of the loaded, containing segment) */
-		void *mapping;
-		size_t length;
+		/* A convenience window for looking specifically at the text section.
+		 * This is backed by the same memory used for the segment:
+		 *
+		 * +---------+------+-----+----------------+
+		 * |   seg   | text | seg |      zero      |
+		 * +---------+------+-----+----------------+
+		 *
+		 * */
+		struct window text;
 	} code;
 };
 
@@ -45,36 +47,28 @@ static int process_function(const struct function *function, void *arg)
 {
 	struct rave_handle *self = (struct rave_handle *)arg;
 	void *pf;
-	int rc = 0;
+	int rc;
 
-	DEBUG("Processing function @ %"PRIxPTR", size = %zu", function->lo,
-		function->hi - function->lo);
+	DEBUG("Processing function @ 0x%"PRIxPTR", size = %zu", function->addr,
+		function->len);
 
 	/* We have to make sure the function addresses are virtually contained by
 	 * the text section */
-	{
-		uintptr_t text;
-		size_t textsz;
-
-		text = self->code.vaddr + self->code.start;
-		textsz = self->code.end - self->code.start;
-
-		/* Find the function in the mapped code region */
-		rc |= !CONTAINS(function->lo, text, text + textsz);
-		rc |= !CONTAINS(function->hi, text, text + textsz);
-		if (rc) {
-			WARN("Can't modify function - not in text section");
-			return RAVE__SUCCESS;
-		}
+	rc = 0;
+	rc |= !window_contains(&self->code.text, function->addr);
+	rc |= !window_contains(&self->code.text, function->addr + function->len);
+	if (rc) {
+		WARN("Can't modify function - not in text section");
+		return RAVE__SUCCESS;
 	}
 
 	/* Get a pointer to the locally-loaded target function */
-	pf = OFFSET(self->code.mapping, function->lo - self->code.vaddr);
+	pf = window_view(&self->code.text, function->addr, NULL);
 
 	/* Let the transformer verify the function */
-	rc = transform_is_safe(NULL, function->lo, pf, function->hi - function->lo);
+	rc = transform_analyze(NULL, function->addr, pf, function->len);
 	if (rc != RAVE__SUCCESS) {
-		WARN("Could not verify function @ %"PRIxPTR, function->lo);
+		WARN("Could not verify function @ 0x%"PRIxPTR, function->addr);
 		return RAVE__SUCCESS;
 	}
 
@@ -91,7 +85,6 @@ struct rave_handle * rave_create(void)
 void rave_destroy(struct rave_handle *self)
 {
 	if (NULL != self) {
-		mop->destroy(self->metadata);
 		rave_free(self);
 	}
 }
@@ -104,7 +97,6 @@ static int map_code_pages(struct rave_handle *self, struct section *text,
 {
 	void *copy_src, *copy_dst;
 	size_t copy_size;
-
 	void *mapping;
 	size_t length;
 
@@ -116,31 +108,34 @@ static int map_code_pages(struct rave_handle *self, struct section *text,
 
 	length = PAGE_UP(segment_memsz(segment));
 
-	/* Since we are not faithfully mapping segments, we are mapping this as r/w
-	 * as we intend to modify code. */
+	/* Map a mock region for the executable segment which we can modify */
 	mapping = mmap(NULL, length, PROT_READ | PROT_WRITE,
-			MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+		MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	if (MAP_FAILED == mapping) {
-		ERROR("Could not create anonymous mapping for code pages");
+		FATAL("Could not map code segment");
 		return RAVE__EMAP_FAILED;
 	}
 
-	/* Copy the segment data from the file, the rest will be zero-filled */
-	DEBUG("Mapping segment");
+	/* Copy the segment from the binary file */
 	copy_dst = mapping;
 	copy_src = OFFSET(self->binary.mapping, segment_offset(segment));
 	copy_size = segment_filesz(segment);
 	memcpy(copy_dst, copy_src, copy_size);
 
-	self->code.vaddr = segment_vaddr(segment);
-	self->code.start = section_offset(text) - segment_offset(segment);
-	self->code.end = self->code.start + section_size(text);
-	self->code.mapping = mapping;
-	self->code.length = length;
+	/* The full segment window */
+	window_init(&self->code.segment,
+		segment_vaddr(segment),
+		mapping,
+		length);
 
-	DEBUG("Locally loaded segment intended for: %"PRIxPTR" -> %"PRIxPTR
-		" (%zu pages)", self->code.vaddr, self->code.vaddr + self->code.length,
-		self->code.length / PAGESZ);
+	/* Convenience window to access text section directly */
+	window_init(&self->code.text,
+		section_address(text),
+		OFFSET(mapping, section_offset(text) - segment_offset(segment)),
+		section_size(text));
+
+	DEBUG("Locally loaded segment intended for: 0x%"PRIxPTR" (%zu pages)",
+		segment_vaddr(segment), length / PAGESZ);
 
 	return RAVE__SUCCESS;
 }
@@ -220,6 +215,8 @@ err:
 
 int rave_close(struct rave_handle *self)
 {
+	void *code_mapping;
+	size_t code_length;
 	int rc = 0;
 
 	if (NULL == self) {
@@ -228,47 +225,73 @@ int rave_close(struct rave_handle *self)
 
 	DEBUG("Closing rave handle...");
 
-	if (self->code.mapping) {
-		if (munmap(self->code.mapping, self->code.length) != 0) {
-			ERROR("Couldn't unmap file memory");
-		} else {
-			self->code.mapping = NULL;
-			self->code.length = 0;
+	code_mapping = window_get(&self->code.segment, &code_length);
+	if (code_mapping) {
+		if (munmap(code_mapping, code_length) != 0) {
+			WARN("Couldn't unmap code mapping");
 		}
 	}
 
 	rc |= mop->close(self->metadata);
+	mop->destroy(self->metadata);
 	rc |= binary_close(&self->binary);
 	return rc;
 }
 
+int rave_relocate(rave_handle_t self, uintptr_t address)
+{
+	size_t offset;
+
+	if (NULL == self) {
+		return RAVE__EINVAL;
+	}
+
+	/* Get the original offset into the text section */
+	offset = window_orig(&self->code.text) - window_orig(&self->code.segment);
+
+	/* relocate the segment and the text */
+	window_relocate(&self->code.segment, address);
+	window_relocate(&self->code.text, address + offset);
+
+	return RAVE__SUCCESS;
+}
+
 void *rave_handle_fault(struct rave_handle *self, uintptr_t address)
 {
+	void *page;
+	size_t length;
+
+	address = PAGE_DOWN(address);
+
 	if (NULL == self) {
 		return NULL;
 	}
 
-	/* Check if the faulting address lies within the code pages */
-	if (CONTAINS(address, self->code.vaddr,
-		self->code.vaddr + self->code.length))
-	{
-		return OFFSET(self->code.mapping, PAGE_DOWN(address) -
-			self->code.vaddr);
+	if (!window_contains(&self->code.segment, address)) {
+		return NULL;
 	}
 
-	return NULL;
+	/* If for some reason, the leftover length is less than a page, then we have
+	 * a problem */
+	page = window_view(&self->code.segment, address, &length);
+	if (length < PAGESZ) {
+		ERROR("Not enough memory in code segment for a full page");
+		return NULL;
+	} else if (length % PAGESZ) {
+		WARN("Code segment might be missing data (length mismatch)");
+	}
+
+	return page;
 }
 
 void *rave_get_code(struct rave_handle *self, size_t *length)
 {
+	uintptr_t vaddr;
+
 	if (NULL == self) {
 		return NULL;
 	}
 
-	if (self->code.mapping && self->code.length) {
-		*length = self->code.length;
-		return self->code.mapping;
-	}
-
-	return NULL;
+	vaddr = window_orig(&self->code.segment);
+	return window_view(&self->code.segment, vaddr, length);
 }

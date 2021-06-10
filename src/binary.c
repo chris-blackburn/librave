@@ -104,7 +104,10 @@ int binary_init(struct binary *self, const char *filename)
 	}
 
 	/* The elf must be an executable. */
-	if (self->header.e_type != ET_EXEC) {
+	// TODO: some elfs are marked ET_DYN even though they are really meant to be
+	// run as executables, so we may want to do some additional checks to make
+	// sure the target isn't a .so, but not worrying about it now.
+	if (self->header.e_type != ET_EXEC && self->header.e_type != ET_DYN) {
 		FATAL("rave only supports executable elfs");
 		return RAVE__EELF_NOT_SUPPORTED;
 	}

@@ -48,6 +48,7 @@ static int get_stack_delta(instr_t *instr)
 	switch (opcode) {
 	/* push and pop size determined through operand size */
 	case OP_push:
+	case OP_push_imm:
 		return -opnd_size_in_bytes(opnd_get_size(instr_get_src(instr, 0)));
 	case OP_pop:
 		return opnd_size_in_bytes(opnd_get_size(instr_get_dst(instr, 0)));
@@ -71,7 +72,7 @@ static int get_stack_delta(instr_t *instr)
 	}
 }
 
-int transform_is_safe(UNUSED struct transform *self, uintptr_t orig,
+int transform_analyze(UNUSED struct transform *self, uintptr_t orig,
 	void *function, size_t length)
 {
 	instr_noalloc_t noalloc;
@@ -115,7 +116,7 @@ int transform_is_safe(UNUSED struct transform *self, uintptr_t orig,
 	/* If the stack delta is not zero, then we cannot safely manipulate this
 	 * function */
 	if (stack_delta) {
-		ERROR("Cannot resolve stack delta");
+		ERROR("Cannot resolve stack delta %d", stack_delta);
 		return RAVE__ETRANSFORM;
 	}
 

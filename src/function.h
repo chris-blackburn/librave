@@ -13,8 +13,8 @@
 #include <stdint.h>
 
 struct function {
-	uintptr_t hi;
-	uintptr_t lo;
+	uintptr_t addr;
+	size_t len;
 };
 
 #endif /* __FUNCTION_H_ */

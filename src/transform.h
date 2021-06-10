@@ -20,7 +20,7 @@ int transform_init(transform_t self);
  *
  * If one of these is not true, then we can not safely transform the function.
  **/
-int transform_is_safe(transform_t self, uintptr_t orig,
+int transform_analyze(transform_t self, uintptr_t orig,
 	void *function, size_t length);
 
 #endif /* __TRANSFORM_H_ */

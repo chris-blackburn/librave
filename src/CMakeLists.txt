@@ -21,13 +21,14 @@ find_path(DYNAMORIO_INC_DIR
 )
 
 # Library
-add_library(rave SHARED
+add_library(rave STATIC
 	rave.c
 	binary.c
 	section.c
 	segment.c
 	metadata_dwarf.c
 	transform.c
+	window.c
 )
 
 target_include_directories(rave PRIVATE
@@ -42,11 +43,12 @@ target_compile_options(rave PRIVATE
 )
 
 target_link_libraries(rave PRIVATE
-	${ELF}
 	${DWARF}
+	${ELF}
 	${ZLIB_LIBRARIES}
 	${DYNAMORIO_LIB_DIR}/libdrdecode.a
 	${DYNAMORIO_LIB_DIR}/../libdrlibc.a
+	-static
 )
 
 set_target_properties(rave PROPERTIES PUBLIC_HEADER

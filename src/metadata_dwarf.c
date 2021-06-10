@@ -24,14 +24,20 @@ static int get_function_hilo(struct metadata *self, Dwarf_Die die,
 	struct function function;
 	int rc;
 
+	/* If the subprogram does not have an address, then it is probably inlined
+	 * or is special in some other way. We want to skip those. */
 	rc = dwarf_lowpc(die, &lo, &err);
 	if (rc == DW_DLV_ERROR) {
 		goto dwarf_err;
+	} else if (rc == DW_DLV_NO_ENTRY) {
+		return RAVE__SUCCESS;
 	}
 
 	rc = dwarf_highpc_b(die, &hi, &form, &formclass, &err);
 	if (rc == DW_DLV_ERROR) {
 		goto dwarf_err;
+	} else if (rc == DW_DLV_NO_ENTRY) {
+		return RAVE__SUCCESS;
 	}
 
 	/* high pc may actually just be the length of the function */
@@ -39,8 +45,8 @@ static int get_function_hilo(struct metadata *self, Dwarf_Die die,
 		hi += lo;
 	}
 
-	function.hi = hi;
-	function.lo = lo;
+	function.addr = lo;
+	function.len = hi - lo;
 	return cb(&function, arg);
 dwarf_err:
 	ERROR("dwarf: %s", dwarf_errmsg(err));
@@ -165,6 +171,7 @@ static int foreach_function(struct metadata *self, foreach_function_cb cb,
 	Dwarf_Error err;
 	int rc;
 
+	DEBUG("dwarf searching for functions");
 	while (1) {
 		Dwarf_Die cu_die = 0;
 
@@ -230,7 +237,7 @@ static int init(struct metadata *self, struct binary *binary)
 		return RAVE__EDWARF;
 	}
 
-	DEBUG("Metadata initialized");
+	DEBUG("Dwarf metadata initialized");
 	self->dbg = dbg;
 	self->binary = binary;
 
@@ -245,11 +252,11 @@ static int close(struct metadata *self)
 		return RAVE__EINVAL;
 	}
 
-    if (dwarf_finish(self->dbg, &err) != DW_DLV_OK) {
+	if (dwarf_finish(self->dbg, &err) != DW_DLV_OK) {
 		ERROR("Failed to close dwarf");
 		dwarf_dealloc(self->dbg, err, DW_DLA_ERROR);
-        return RAVE__EDWARF;
-    }
+		return RAVE__EDWARF;
+	}
 
 	return RAVE__SUCCESS;
 }

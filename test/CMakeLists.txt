@@ -7,6 +7,7 @@ add_executable(simple
 target_compile_options(simple PRIVATE
 	"-Wall"
 	"-Werror"
+	-static
 )
 
 target_link_libraries(simple PRIVATE
@@ -20,6 +21,7 @@ add_executable(code_mapping
 target_compile_options(code_mapping PRIVATE
 	"-Wall"
 	"-Werror"
+	-static
 )
 
 target_link_libraries(code_mapping PRIVATE
