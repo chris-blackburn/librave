@@ -8,6 +8,7 @@
 #include <stdbool.h>
 
 #include "compiler.h"
+#include "util.h"
 
 /*
  * These are non-NULL pointers that will result in page faults

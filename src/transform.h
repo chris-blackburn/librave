@@ -40,7 +40,11 @@ struct transformable {
 	struct list_head epilogues;
 };
 
+transform_t transform_create(void);
+void transform_destroy(transform_t self);
+
 int transform_init(transform_t self);
+int transform_close(transform_t self);
 
 /* Make sure we can transform the function.
  *
@@ -52,11 +56,11 @@ int transform_init(transform_t self);
  * about the function doesn't help me much. So, for now, it just records info
  * about prologues and epilogues.
  * */
-int transform_analyze(transform_t self, const struct function *record,
-	void *bytes, struct transformable *tf);
+int transform_add_function(transform_t self, const struct function *record,
+	void *bytes);
 
 /* Permute push/pop instructions in the prologue and epilogue of a function */
-int transform_permute(transform_t self, struct transformable *tf);
+int transform_permute_all(transform_t self);
 
 #endif /* __TRANSFORM_H_ */
 

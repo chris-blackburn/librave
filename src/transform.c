@@ -7,85 +7,146 @@
 
 #include "transform.h"
 #include "rave/errno.h"
+#include "memory.h"
 #include "util.h"
 #include "log.h"
 
+/* Main transform handler */
 struct transform {
-
+	// TODO: turn into a hashlist
+	struct list_head transformables;
 };
 
-int transform_init(UNUSED struct transform *self)
+static struct instr_set * instr_set_create(void)
 {
+	return rave_malloc(sizeof(struct instr_set));
+}
+
+static void instr_set_destroy(struct instr_set *self)
+{
+	if (NULL != self) {
+		rave_free(self);
+	}
+}
+
+static struct transformable * transformable_create(void)
+{
+	return rave_malloc(sizeof(struct transformable));
+}
+
+static void transformable_destroy(struct transformable *self)
+{
+	if (NULL != self) {
+		rave_free(self);
+	}
+}
+
+static void instr_set_init(struct instr_set *self, uintptr_t orig)
+{
+	if (NULL == self) {
+		return;
+	}
+
+	self->start = self->end = orig;
+	self->nr_instrs = 0;
+	self->instrs = NULL;
+}
+
+static void instr_set_close(struct instr_set *self)
+{
+	instr_t * instr;
+
+	if (NULL == self) {
+		return;
+	}
+
+	for (instr = self->instrs;
+		instr;
+		instr = instr_get_next(instr))
+	{
+		instr_destroy(GLOBAL_DCONTEXT, instr);
+	}
+
+	self->instrs = NULL;
+}
+
+static void transformable_init(struct transformable *self,
+	const struct function *record)
+{
+	if (NULL == self) {
+		return;
+	}
+
+	memcpy(&self->record, record, sizeof(struct function));
+	instr_set_init(&self->prologue, record->addr);
+	INIT_LIST_HEAD(&self->epilogues);
+}
+
+static void transformable_close(struct transformable *self)
+{
+	struct list_head *pos, *n;
+	struct instr_set *set;
+
+	if (NULL == self) {
+		return;
+	}
+
+	instr_set_close(&self->prologue);
+
+	list_for_each_safe(pos, n, &self->epilogues) {
+		list_del(pos);
+		set = list_entry(pos, struct instr_set, l);
+		instr_set_close(set);
+		instr_set_destroy(set);
+	}
+}
+
+struct transform * transform_create(void)
+{
+	return rave_malloc(sizeof(struct transform));
+}
+
+void transform_destroy(struct transform *self)
+{
+	if (NULL != self) {
+		rave_free(self);
+	}
+}
+
+int transform_init(struct transform *self)
+{
+	if (NULL == self) {
+		return RAVE__EINVAL;
+	}
+
 	if (!dr_set_isa_mode(GLOBAL_DCONTEXT, DR_ISA_AMD64, NULL)) {
 		return RAVE__ETRANSFORM;
+	}
+
+	INIT_LIST_HEAD(&self->transformables);
+
+	return RAVE__SUCCESS;
+}
+
+int transform_close(struct transform *self)
+{
+	struct list_head *pos, *n;
+	struct transformable *tf;
+
+	if (NULL == self) {
+		return RAVE__EINVAL;
+	}
+
+	list_for_each_safe(pos, n, &self->transformables) {
+		list_del(pos);
+		tf = list_entry(pos, struct transformable, l);
+		transformable_close(tf);
 	}
 
 	return RAVE__SUCCESS;
 }
 
-#if 0 // Too aggressive, simpler analysis will do for pro/epilogue permutation
-#define STACK_DELTA_INIT (-8)
-/* returns the stack delta resulting from a single instruction */
-static void update_stack_delta(int *stack_delta, instr_t *instr)
-{
-	int opcode;
-
-	/* If we don't write to the stack pointer nothing to worry about here */
-	if (!instr_writes_to_reg(instr, DR_REG_XSP, DR_QUERY_INCLUDE_ALL)) {
-		return;
-	}
-
-	/* We don't need to track call's disturbance of the stack pointer since it's
-	 * really just switching to a new frame. */
-	if (instr_is_call(instr)) {
-		return;
-	}
-
-	/* Returns always pop the return address off the stack */
-	if (instr_is_return(instr)) {
-		*stack_delta += 8;
-		return;
-	}
-
-	/* For any other instructions, we have to be more precarious */
-	opcode = instr_get_opcode(instr);
-	switch (opcode) {
-	/* push and pop size determined through operand size */
-	case OP_push:
-	case OP_push_imm:
-		*stack_delta -=
-			opnd_size_in_bytes(opnd_get_size(instr_get_src(instr, 0)));
-		return;
-	case OP_pop:
-		*stack_delta +=
-			opnd_size_in_bytes(opnd_get_size(instr_get_dst(instr, 0)));
-		return;
-	case OP_pushf:
-		*stack_delta -= 8;
-		return;
-	case OP_popf:
-		*stack_delta += 8;
-		return;
-	case OP_leave:
-		/* This frees the whole frame except for the return address */
-		*stack_delta = -8;
-		return;
-	// TODO: There are other instructions that just clean up the whole stack.
-	// e.g. sometimes you'll see lea offset(%rbp),%rsp which just plops the
-	// stack pointer back to some other position. That delta becomes very hard
-	// to track...
-	case OP_add:
-	case OP_sub:
-	case OP_lea:
-		WARN("Caught known stack delta instruction, but not paying attention");
-	default:
-		WARN("Stack delta modified by uncaught instruction dr op = %d", opcode);
-		return;
-	}
-}
-#endif
-
-/* Test for instructions in the prologue. Should look like:
+/* Test for instructions could be in the prologue. Should look like:
  *
  * push %rbp
  * mov %rsp,%rbp
@@ -109,40 +170,39 @@ static int test_instr_prologue(instr_t *instr)
 	return 1;
 }
 
-/* Test for instructions in the epilogue */
-UNUSED
-static int test_instr_epilogue(UNUSED instr_t *instr)
+/* Test for instructions that could be in the epilogue */
+static int test_instr_epilogue(instr_t *instr)
 {
-	return 0;
-}
+	int opcode = instr_get_opcode(instr);
 
-static int test_instr_none(UNUSED instr_t *instr)
-{
-	return 0;
+	if (opcode != OP_pop) {
+		return 0;
+	}
+
+	/* We don't want to mess with rbp */
+	if (opnd_get_reg(instr_get_dst(instr, 0)) == DR_REG_RBP) {
+		return 0;
+	}
+
+	return 1;
 }
 
 /* takes a callback to a function which tests an instruction for come condition
- * which determines if it stays in the set or not.
- *
- * Returns the number of bytes traversed while finding the next instruction set.
- * If an error occurs, the return value will be less than zero and its value
- * will be an error code.
- * */
+ * which determines if it stays in the set or not. */
 static int next_set(byte **walk, byte *max, uintptr_t orig,
 	struct instr_set *set, int (*test_instr)(instr_t *instr))
 {
-	instr_t *instr, *pinstr = NULL;
-	int instr_len, nr_read = 0;
-
-	set->start = set->end = orig;
-	set->nr_instrs = 0;
-	set->instrs = NULL;
+	instr_t *instr = NULL, *pinstr = NULL;
+	int instr_len;
+	int ret;
 
 	/* Alloc & init the instr */
 	instr = instr_create(GLOBAL_DCONTEXT);
 	if (!instr) {
-		return -RAVE__ENOMEM;
+		return RAVE__ENOMEM;
 	}
+
+	instr_set_init(set, orig);
 
 	while (*walk < max) {
 		*walk = decode_from_copy(GLOBAL_DCONTEXT, *walk, PTR(orig), instr);
@@ -150,12 +210,11 @@ static int next_set(byte **walk, byte *max, uintptr_t orig,
 
 		if (NULL == *walk) {
 			ERROR("Invalid instruction");
-			nr_read = -RAVE__ETRANSFORM;
+			ret = RAVE__ETRANSFORM;
 			goto err;
 		}
 
 		orig += instr_len;
-		nr_read += instr_len;
 
 		/* Test if we want to keep this instruction in the current set */
 		if (NULL == test_instr || test_instr(instr)) {
@@ -171,12 +230,15 @@ static int next_set(byte **walk, byte *max, uintptr_t orig,
 				instr_set_next(pinstr, instr);
 			}
 
+			/* Allocate raw bits separately (so we don't mangle the backing
+			 * store of instruction data) */
+			instr_allocate_raw_bits(GLOBAL_DCONTEXT, instr, instr_len);
 			pinstr = instr;
 
 			/* Allocate new instr */
 			instr = instr_create(GLOBAL_DCONTEXT);
 			if (NULL == instr) {
-				nr_read = -RAVE__ENOMEM;
+				ret = RAVE__ENOMEM;
 				goto err;
 			}
 
@@ -193,68 +255,131 @@ static int next_set(byte **walk, byte *max, uintptr_t orig,
 	}
 
 	instr_destroy(GLOBAL_DCONTEXT, instr);
-	return nr_read;
+	return RAVE__SUCCESS;
 err:
 	if (instr) {
 		instr_destroy(GLOBAL_DCONTEXT, instr);
 	}
 
-	for (instr_t *__instr = set->instrs;
-		__instr;
-		__instr = instr_get_next(__instr))
-	{
-		instr_destroy(GLOBAL_DCONTEXT, __instr);
-	}
-	return nr_read;
+	instr_set_close(set);
+	return ret;
 }
 
-/* I remove the first two instructions of the prologue since I know they involve
- * saving the fbp (I just want pushes, but by finding the fbp preservation
- * instructions, I can more reliably find prologues). */
-//TODO: static void prune_prologue(UNUSED struct instr_set *set);
+static int is_epilogue(const struct instr_set *pro, const struct instr_set *epi)
+{
+	instr_t *iter;
+	reg_id_t regs[pro->nr_instrs], *reg = regs; // TODO: bleh
+
+	if (pro->nr_instrs != epi->nr_instrs) {
+		return 0;
+	}
+
+	/* Check the order */
+	for (iter = pro->instrs;
+		iter;
+		iter = instr_get_next(iter), reg++)
+	{
+		*reg = opnd_get_reg(instr_get_src(iter, 0));
+	}
+
+	reg--;
+
+	for (iter = epi->instrs;
+		iter;
+		iter = instr_get_next(iter), reg--)
+	{
+		if (*reg != opnd_get_reg(instr_get_dst(iter, 0))) {
+			DEBUG("Epilogue doesn't match prologue order");
+			return 0;
+		}
+	}
+
+	return 1;
+}
 
 /* This function populates the fields of the given transformable given a
  * function record and instruction bytes */
-int transform_analyze(UNUSED transform_t self, const struct function *record,
-	void *bytes, struct transformable *tf)
+int transform_add_function(transform_t self, const struct function *record,
+	void *bytes)
 {
 	byte *walk = bytes,
 		 *end = OFFSET(walk, record->len);
 	uintptr_t orig = record->addr;
-	size_t length = record->len;
-	struct instr_set current;
-	int ret;
+	struct transformable *tf;
+	struct instr_set *set = NULL;
+	int rc, ret;
+
+	tf = transformable_create();
+	if (NULL == tf) {
+		return RAVE__ENOMEM;
+	}
+	transformable_init(tf, record);
 
 	/* First, we need to find the prologue (if there is one we can permute) */
-	ret = next_set(&walk, end, orig, &tf->prologue,
-		test_instr_prologue);
-	if (ret < 0) {
+	rc = next_set(&walk, end, orig, &tf->prologue, test_instr_prologue);
+	if (rc != RAVE__SUCCESS) {
 		ERROR("error while finding function prologue");
-		return -ret;
+		return rc;
 	}
 
-	length -= ret;
-
-	/* If there was no prologue, then we can't transform this function */
-	if (0 == tf->prologue.nr_instrs) {
+	/* If there was no prologue (or if it was too small), then we can't
+	 * transform this function */
+	if (tf->prologue.nr_instrs < 2) {
 		DEBUG("Function has no randomizable prologue");
-		return RAVE__ETRANSFORM;
+		ret = RAVE__ETRANSFORM;
+		goto err;
+	}
+
+	/* Allocate instruction set to iterate over remaining sets */
+	set = instr_set_create();
+	if (NULL == set) {
+		ret = RAVE__ENOMEM;
+		goto err;
 	}
 
 	/* Now, we find any other instruction sets that mirror the prologue (i.e.
 	 * find any epilogues in the function) */
 	while (walk < end) {
-		length -= next_set(&walk, end, orig, &current, test_instr_none);
+		rc = next_set(&walk, end, orig, set, test_instr_epilogue);
+		if (rc != RAVE__SUCCESS) {
+			ERROR("error while finding function next instruction set");
+			ret = rc;
+			goto err;
+		}
+
+		/* Now, we need to check if this candidate is truly an epilogue */
+		if (is_epilogue(&tf->prologue, set)) {
+			/* Spin off */
+			DEBUG("Found matching epilogue");
+			list_add_tail(&set->l, &tf->epilogues);
+
+			set = instr_set_create();
+			if (NULL == set) {
+				ret = RAVE__ENOMEM;
+				goto err;
+			}
+
+			continue;
+		}
+
+		instr_set_close(set);
 	}
+
+	instr_set_destroy(set);
+	set = NULL;
 
 	/* There should be no unnacounted for bytes in this function */
-	if (length) {
+	if (walk != end) {
 		ERROR("Function size not true");
-		return RAVE__ETRANSFORM;
+		ret = RAVE__ETRANSFORM;
+		goto err;
 	}
 
-	/* All is well, populate the transformable function */
-	memcpy(&tf->record, record, sizeof(*record));
+	if (list_empty(&tf->epilogues)) {
+		ERROR("Found no matching epilogues");
+		ret = RAVE__ETRANSFORM;
+		goto err;
+	}
 
 	DEBUG_BLOCK(
 		instr_t *__instr;
@@ -275,11 +400,18 @@ int transform_analyze(UNUSED transform_t self, const struct function *record,
 		}
 	)
 
+	list_add_tail(&tf->l, &self->transformables);
 	return RAVE__SUCCESS;
+err:
+	instr_set_close(set);
+	instr_set_destroy(set);
+	transformable_close(tf);
+	transformable_destroy(tf);
+	return ret;
 }
 
-int transform_permute(UNUSED struct transform *self, struct transformable *tf)
+int transform_permute_all(struct transform *self)
 {
-	(void)tf;
+	(void)self;
 	return RAVE__SUCCESS;
 }

@@ -20,7 +20,7 @@ static int get_function_hilo(struct metadata *self, Dwarf_Die die,
 	Dwarf_Addr lo, hi;
 	Dwarf_Half form = 0;
 	enum Dwarf_Form_Class formclass = 0;
-	Dwarf_Error err;
+	Dwarf_Error err = 0;
 	struct function function;
 	int rc;
 
@@ -114,7 +114,7 @@ static int process_die_and_siblings(struct metadata *self, Dwarf_Die cu_die,
 	Dwarf_Die next_die = 0;
 	Dwarf_Die cur_die = 0;
 	Dwarf_Half tag;
-	Dwarf_Error err;
+	Dwarf_Error err = 0;
 	int rc;
 
 	rc = dwarf_child(cu_die, &cur_die, &err);
@@ -168,7 +168,7 @@ static int foreach_function(struct metadata *self, foreach_function_cb cb,
 	Dwarf_Unsigned next_cu_header_offset = 0;
 	Dwarf_Half header_cu_type = DW_UT_compile;
 	Dwarf_Bool is_info = 1;
-	Dwarf_Error err;
+	Dwarf_Error err = 0;
 	int rc;
 
 	DEBUG("dwarf searching for functions");
@@ -246,7 +246,7 @@ static int init(struct metadata *self, struct binary *binary)
 
 static int close(struct metadata *self)
 {
-	Dwarf_Error err = NULL;
+	Dwarf_Error err = 0;
 
 	if (NULL == self) {
 		return RAVE__EINVAL;

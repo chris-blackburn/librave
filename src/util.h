@@ -30,5 +30,9 @@
 	__typeof__ (b) _b = (b); \
 	_a > _b ? _a : _b; })
 
+#define container_of(ptr, type, member) ({ \
+	void *__mptr = (void *)(ptr); \
+	((type *)(__mptr - offsetof(type, member))); })
+
 #endif /* __UTIL_H_ */
 

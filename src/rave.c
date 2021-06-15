@@ -21,6 +21,7 @@ struct rave_handle {
 	struct binary binary;
 
 	metadata_t metadata;
+	transform_t transform;
 
 	/* The memory mapping containing code pages */
 	struct {
@@ -40,7 +41,9 @@ struct rave_handle {
 		struct window text;
 	} code;
 
-	/* List of transformable/transformed functions */
+	/* The executable segment could have been loaded somewhere else in memory,
+	 * so we need an offset to reflect that */
+	size_t reloc_offset;
 };
 
 /* Callback used when iterating through function metadata. Returns success
@@ -48,7 +51,6 @@ struct rave_handle {
 static int process_function(const struct function *function, void *arg)
 {
 	struct rave_handle *self = (struct rave_handle *)arg;
-	struct transformable _tf, *tf = &_tf;
 	void *bytes;
 	int rc;
 
@@ -69,26 +71,11 @@ static int process_function(const struct function *function, void *arg)
 	bytes = window_view(&self->code.text, function->addr, NULL);
 
 	/* Let the transformer verify the function */
-	rc = transform_analyze(NULL, function, bytes, tf);
+	rc = transform_add_function(self->transform, function, bytes);
 	if (rc != RAVE__SUCCESS) {
 		WARN("non-randomizable function @ 0x%"PRIxPTR, function->addr);
 		return RAVE__SUCCESS;
 	}
-
-	/* Successfull analysis, lets make it mutable */
-	// TODO:
-
-	/* Transform the function */
-	rc = transform_permute(NULL, tf);
-	if (rc != RAVE__SUCCESS) {
-		WARN("Could not permute function @ 0x%"PRIxPTR, function->addr);
-		return RAVE__SUCCESS;
-	}
-
-	DEBUG("Successfully permuted");
-
-	/* Add to list */
-	// TODO:
 
 	return RAVE__SUCCESS;
 }
@@ -168,9 +155,16 @@ int rave_init(struct rave_handle *self, const char *filename)
 		return 0;
 	}
 
-	rc = transform_init(NULL);
-	if (rc != RAVE__SUCCESS) {
-		goto err;
+	self->metadata = mop->create();
+	if (NULL == self->metadata) {
+		FATAL("No memory for metadata");
+		return RAVE__ENOMEM;
+	}
+
+	self->transform = transform_create();
+	if (NULL == self->transform) {
+		FATAL("No memory for transform");
+		return RAVE__ENOMEM;
 	}
 
 	rc = binary_init(&self->binary, filename);
@@ -192,17 +186,15 @@ int rave_init(struct rave_handle *self, const char *filename)
 		return rc;
 	}
 
-	/* Load metadata about the binary*/
-	self->metadata = mop->create();
-	if (NULL == self->metadata) {
-		FATAL("No memory for metadata");
-		return RAVE__ENOMEM;
-	}
-
 	rc = mop->init(self->metadata, &self->binary);
 	if (rc != RAVE__SUCCESS) {
 		FATAL("Could not initialize binary metadata");
 		return rc;
+	}
+
+	rc = transform_init(self->transform);
+	if (rc != RAVE__SUCCESS) {
+		goto err;
 	}
 
 	/* Now that we've loaded both the text section and it's containing segment,
@@ -251,23 +243,19 @@ int rave_close(struct rave_handle *self)
 	rc |= mop->close(self->metadata);
 	mop->destroy(self->metadata);
 	rc |= binary_close(&self->binary);
+	rc |= transform_close(self->transform);
+	transform_destroy(self->transform);
 	return rc;
 }
 
 int rave_relocate(rave_handle_t self, uintptr_t address)
 {
-	size_t offset;
-
 	if (NULL == self) {
 		return RAVE__EINVAL;
 	}
 
-	/* Get the original offset into the text section */
-	offset = window_orig(&self->code.text) - window_orig(&self->code.segment);
-
-	/* relocate the segment and the text */
-	window_relocate(&self->code.segment, address);
-	window_relocate(&self->code.text, address + offset);
+	/* Offset from the original address */
+	self->reloc_offset = window_orig(&self->code.segment) - address;
 
 	return RAVE__SUCCESS;
 }
@@ -277,11 +265,11 @@ void *rave_handle_fault(struct rave_handle *self, uintptr_t address)
 	void *page;
 	size_t length;
 
-	address = PAGE_DOWN(address);
-
 	if (NULL == self) {
 		return NULL;
 	}
+
+	address = PAGE_DOWN(address) + self->reloc_offset;
 
 	if (!window_contains(&self->code.segment, address)) {
 		return NULL;
