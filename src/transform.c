@@ -11,6 +11,9 @@
 #include "util.h"
 #include "log.h"
 
+#define instr_for_each(cursor, set) \
+	for (cursor = (set)->instrs; cursor; cursor = instr_get_next(cursor))
+
 /* Main transform handler */
 struct transform {
 	// TODO: turn into a hashlist
@@ -410,8 +413,85 @@ err:
 	return ret;
 }
 
-int transform_permute_all(struct transform *self)
+static int instr_set_encode(const struct instr_set *set, byte *target)
 {
-	(void)self;
+	instr_t *instr;
+	uintptr_t orig;
+	byte *walk = target, *prev;
+
+	orig = set->start;
+	instr_for_each(instr, set) {
+		prev = walk;
+		walk = instr_encode_to_copy(GLOBAL_DCONTEXT, instr, walk, PTR(orig));
+		if (NULL == walk) {
+			ERROR("Could not encode instr");
+			return RAVE__ETRANSFORM;
+		}
+
+		orig += walk - prev;
+		if (orig > set->end) {
+			WARN("Expected fewer instructions during encode");
+			return RAVE__ETRANSFORM;
+		}
+	}
+
+	return RAVE__SUCCESS;
+}
+
+/* Don't do any transformation, just re-encode */
+static int identity(struct transformable *tf, struct window *fw)
+{
+	struct instr_set *set;
+	int rc;
+
+	/* Identity encode the prologue */
+	set = &tf->prologue;
+	rc = instr_set_encode(set, window_view(fw, set->start, NULL));
+	if (rc != RAVE__SUCCESS) {
+		ERROR("Could not encode prologue @ 0x%"PRIxPTR" size = %d",
+			set->start, (int)(set->end - set->start));
+		return rc;
+	}
+
+	/* Encode all the epilogues */
+	list_for_each_entry(set, &tf->epilogues, l) {
+		rc = instr_set_encode(set, window_view(fw, set->start, NULL));
+		if (rc != RAVE__SUCCESS) {
+			ERROR("Could not encode instruction set @ 0x%"PRIxPTR" size = %d",
+				set->start, (int)(set->end - set->start));
+			return rc;
+		}
+	}
+
+	return RAVE__SUCCESS;
+}
+
+/* Permute all prologues and epilogues. new instructions encoded to the target
+ * text */
+int transform_permute_all(struct transform *self, struct window *text)
+{
+	struct transformable *tf;
+	struct window fw;
+	void *bytes;
+	int rc;
+
+	if (NULL == self || NULL == text) {
+		return RAVE__EINVAL;
+	}
+
+	DEBUG("Permuting all function preservation code");
+
+	list_for_each_entry(tf, &self->transformables, l) {
+		bytes = window_view(text, tf->record.addr, NULL);
+		window_init(&fw, tf->record.addr, bytes, tf->record.len);
+
+		rc = identity(tf, &fw);
+		if (rc != RAVE__SUCCESS) {
+			return rc;
+		}
+	}
+
+	DEBUG("done!");
+
 	return RAVE__SUCCESS;
 }

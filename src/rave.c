@@ -248,6 +248,19 @@ int rave_close(struct rave_handle *self)
 	return rc;
 }
 
+/* trigger a randomization */
+int rave_randomize(rave_handle_t self)
+{
+	int rc;
+
+	if (NULL == self) {
+		return RAVE__EINVAL;
+	}
+
+	rc = transform_permute_all(self->transform, &self->code.text);
+	return rc;
+}
+
 int rave_relocate(rave_handle_t self, uintptr_t address)
 {
 	if (NULL == self) {

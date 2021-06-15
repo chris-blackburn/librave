@@ -17,6 +17,12 @@ int main(int argc, char **argv) {
 		goto err;
 	}
 
+	rc = rave_randomize(rh);
+	if (rc != 0) {
+		fprintf(stderr, "randomization failed\n");
+		goto err;
+	}
+
 	rc = rave_close(rh);
 	if (rc != 0) {
 		fprintf(stderr, "Close failed\n");

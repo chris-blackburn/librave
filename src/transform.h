@@ -11,6 +11,7 @@
 #ifndef __TRANSFORM_H_
 #define __TRANSFORM_H_
 
+#include "window.h"
 #include "function.h"
 #include "list.h"
 
@@ -60,7 +61,7 @@ int transform_add_function(transform_t self, const struct function *record,
 	void *bytes);
 
 /* Permute push/pop instructions in the prologue and epilogue of a function */
-int transform_permute_all(transform_t self);
+int transform_permute_all(transform_t self, struct window *text);
 
 #endif /* __TRANSFORM_H_ */
 
