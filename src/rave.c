@@ -39,6 +39,8 @@ struct rave_handle {
 		 * */
 		struct window text;
 	} code;
+
+	/* List of transformable/transformed functions */
 };
 
 /* Callback used when iterating through function metadata. Returns success
@@ -46,7 +48,8 @@ struct rave_handle {
 static int process_function(const struct function *function, void *arg)
 {
 	struct rave_handle *self = (struct rave_handle *)arg;
-	void *pf;
+	struct transformable _tf, *tf = &_tf;
+	void *bytes;
 	int rc;
 
 	DEBUG("Processing function @ 0x%"PRIxPTR", size = %zu", function->addr,
@@ -63,16 +66,29 @@ static int process_function(const struct function *function, void *arg)
 	}
 
 	/* Get a pointer to the locally-loaded target function */
-	pf = window_view(&self->code.text, function->addr, NULL);
+	bytes = window_view(&self->code.text, function->addr, NULL);
 
 	/* Let the transformer verify the function */
-	rc = transform_analyze(NULL, function->addr, pf, function->len);
+	rc = transform_analyze(NULL, function, bytes, tf);
 	if (rc != RAVE__SUCCESS) {
-		WARN("Could not verify function @ 0x%"PRIxPTR, function->addr);
+		WARN("non-randomizable function @ 0x%"PRIxPTR, function->addr);
 		return RAVE__SUCCESS;
 	}
 
+	/* Successfull analysis, lets make it mutable */
+	// TODO:
+
 	/* Transform the function */
+	rc = transform_permute(NULL, tf);
+	if (rc != RAVE__SUCCESS) {
+		WARN("Could not permute function @ 0x%"PRIxPTR, function->addr);
+		return RAVE__SUCCESS;
+	}
+
+	DEBUG("Successfully permuted");
+
+	/* Add to list */
+	// TODO:
 
 	return RAVE__SUCCESS;
 }

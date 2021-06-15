@@ -21,6 +21,7 @@ extern "C" {
 
 #ifndef NDEBUG
 #define DEBUG(msg, ...) LOG("DEBUG", msg, ##__VA_ARGS__);
+#define DEBUG_BLOCK(...) do { __VA_ARGS__; } while (0);
 #else
 #define DEBUG(msg, ...)
 #endif /* NDEBUG */
