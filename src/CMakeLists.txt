@@ -29,6 +29,7 @@ add_library(rave STATIC
 	metadata_dwarf.c
 	transform.c
 	window.c
+	random.c
 )
 
 target_include_directories(rave PRIVATE

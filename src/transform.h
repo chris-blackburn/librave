@@ -39,6 +39,9 @@ struct transformable {
 	/* Instruction sets for prologues and epilogues */
 	struct instr_set prologue;
 	struct list_head epilogues;
+
+	/* Order of preservation slots */
+	int *order;
 };
 
 transform_t transform_create(void);

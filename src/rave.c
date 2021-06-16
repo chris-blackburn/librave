@@ -312,3 +312,15 @@ void *rave_get_code(struct rave_handle *self, size_t *length)
 	vaddr = window_orig(&self->code.segment);
 	return window_view(&self->code.segment, vaddr, length);
 }
+
+void *rave_get_text(struct rave_handle *self, size_t *length)
+{
+	uintptr_t vaddr;
+
+	if (NULL == self) {
+		return NULL;
+	}
+
+	vaddr = window_orig(&self->code.text);
+	return window_view(&self->code.text, vaddr, length);
+}

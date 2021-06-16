@@ -8,6 +8,7 @@
 #include "transform.h"
 #include "rave/errno.h"
 #include "memory.h"
+#include "random.h"
 #include "util.h"
 #include "log.h"
 
@@ -83,6 +84,7 @@ static void transformable_init(struct transformable *self,
 	memcpy(&self->record, record, sizeof(struct function));
 	instr_set_init(&self->prologue, record->addr);
 	INIT_LIST_HEAD(&self->epilogues);
+	self->order = NULL;
 }
 
 static void transformable_close(struct transformable *self)
@@ -101,6 +103,10 @@ static void transformable_close(struct transformable *self)
 		set = list_entry(pos, struct instr_set, l);
 		instr_set_close(set);
 		instr_set_destroy(set);
+	}
+
+	if (self->order) {
+		rave_free(self->order);
 	}
 }
 
@@ -192,7 +198,7 @@ static int test_instr_epilogue(instr_t *instr)
 
 /* takes a callback to a function which tests an instruction for come condition
  * which determines if it stays in the set or not. */
-static int next_set(byte **walk, byte *max, uintptr_t orig,
+static int next_set(byte **walk, byte *max, uintptr_t *orig,
 	struct instr_set *set, int (*test_instr)(instr_t *instr))
 {
 	instr_t *instr = NULL, *pinstr = NULL;
@@ -205,10 +211,10 @@ static int next_set(byte **walk, byte *max, uintptr_t orig,
 		return RAVE__ENOMEM;
 	}
 
-	instr_set_init(set, orig);
+	instr_set_init(set, *orig);
 
 	while (*walk < max) {
-		*walk = decode_from_copy(GLOBAL_DCONTEXT, *walk, PTR(orig), instr);
+		*walk = decode_from_copy(GLOBAL_DCONTEXT, *walk, PTR(*orig), instr);
 		instr_len = instr_length(GLOBAL_DCONTEXT, instr);
 
 		if (NULL == *walk) {
@@ -217,12 +223,12 @@ static int next_set(byte **walk, byte *max, uintptr_t orig,
 			goto err;
 		}
 
-		orig += instr_len;
+		*orig += instr_len;
 
 		/* Test if we want to keep this instruction in the current set */
 		if (NULL == test_instr || test_instr(instr)) {
 			set->nr_instrs++;
-			set->end = orig;
+			set->end = *orig;
 
 			/* dr instructions already have next/prev ptrs so we gonna use
 			 * those. */
@@ -253,7 +259,7 @@ static int next_set(byte **walk, byte *max, uintptr_t orig,
 			break;
 		}
 
-		set->start = set->end = orig;
+		set->start = set->end = *orig;
 		instr_reuse(GLOBAL_DCONTEXT, instr);
 	}
 
@@ -271,7 +277,7 @@ err:
 static int is_epilogue(const struct instr_set *pro, const struct instr_set *epi)
 {
 	instr_t *iter;
-	reg_id_t regs[pro->nr_instrs], *reg = regs; // TODO: bleh
+	reg_id_t regs[pro->nr_instrs], *reg = regs;
 
 	if (pro->nr_instrs != epi->nr_instrs) {
 		return 0;
@@ -319,7 +325,7 @@ int transform_add_function(transform_t self, const struct function *record,
 	transformable_init(tf, record);
 
 	/* First, we need to find the prologue (if there is one we can permute) */
-	rc = next_set(&walk, end, orig, &tf->prologue, test_instr_prologue);
+	rc = next_set(&walk, end, &orig, &tf->prologue, test_instr_prologue);
 	if (rc != RAVE__SUCCESS) {
 		ERROR("error while finding function prologue");
 		return rc;
@@ -333,6 +339,17 @@ int transform_add_function(transform_t self, const struct function *record,
 		goto err;
 	}
 
+	/* Allocate a table for determining slot order */
+	tf->order = rave_malloc(sizeof(*tf->order) * tf->prologue.nr_instrs);
+	if (NULL == tf->order) {
+		ret = RAVE__ENOMEM;
+		goto err;
+	}
+
+	for (size_t i = 0; i < tf->prologue.nr_instrs; i++) {
+		tf->order[i] = i;
+	}
+
 	/* Allocate instruction set to iterate over remaining sets */
 	set = instr_set_create();
 	if (NULL == set) {
@@ -343,17 +360,19 @@ int transform_add_function(transform_t self, const struct function *record,
 	/* Now, we find any other instruction sets that mirror the prologue (i.e.
 	 * find any epilogues in the function) */
 	while (walk < end) {
-		rc = next_set(&walk, end, orig, set, test_instr_epilogue);
+		rc = next_set(&walk, end, &orig, set, test_instr_epilogue);
 		if (rc != RAVE__SUCCESS) {
 			ERROR("error while finding function next instruction set");
 			ret = rc;
 			goto err;
 		}
 
+		orig += set->end - set->start;
+
 		/* Now, we need to check if this candidate is truly an epilogue */
 		if (is_epilogue(&tf->prologue, set)) {
 			/* Spin off */
-			DEBUG("Found matching epilogue");
+			DEBUG("Found matching epilogue @ 0x%"PRIxPTR, set->start);
 			list_add_tail(&set->l, &tf->epilogues);
 
 			set = instr_set_create();
@@ -386,6 +405,7 @@ int transform_add_function(transform_t self, const struct function *record,
 
 	DEBUG_BLOCK(
 		instr_t *__instr;
+		struct instr_set *__set;
 
 		DEBUG("");
 		fprintf(stderr, "\tAnalysis of function @ 0x%"PRIxPTR", size = %zu\n",
@@ -401,6 +421,11 @@ int transform_add_function(transform_t self, const struct function *record,
 			instr_disassemble(GLOBAL_DCONTEXT, __instr, STDERR);
 			fprintf(stderr, "\n");
 		}
+
+		fprintf(stderr, "\tMatching epilogues at:\n");
+		list_for_each_entry(__set, &tf->epilogues, l) {
+			fprintf(stderr, "\t\t0x%"PRIxPTR"\n", __set->start);
+		}
 	)
 
 	list_add_tail(&tf->l, &self->transformables);
@@ -413,6 +438,7 @@ err:
 	return ret;
 }
 
+UNUSED
 static int instr_set_encode(const struct instr_set *set, byte *target)
 {
 	instr_t *instr;
@@ -438,24 +464,73 @@ static int instr_set_encode(const struct instr_set *set, byte *target)
 	return RAVE__SUCCESS;
 }
 
-/* Don't do any transformation, just re-encode */
-static int identity(struct transformable *tf, struct window *fw)
+static int instr_set_encode_order(const struct instr_set *set, byte *target,
+	const int *order)
+{
+	instr_t *instr;
+	instr_t *instrs[set->nr_instrs];
+	uintptr_t orig;
+	byte *walk = target, *prev;
+	size_t i = 0;
+
+
+	/* create a new list with the intended order locally */
+	instr_for_each(instr, set) {
+		instrs[order[i]] = instr;
+		i++;
+	}
+
+	orig = set->start;
+	for (i = 0, instr = instrs[i]; 
+		i < set->nr_instrs;
+		i++, instr = instrs[i])
+	{
+		prev = walk;
+		walk = instr_encode_to_copy(GLOBAL_DCONTEXT, instr, walk, PTR(orig));
+		if (NULL == walk) {
+			ERROR("Could not encode instr");
+			return RAVE__ETRANSFORM;
+		}
+
+		orig += walk - prev;
+		if (orig > set->end) {
+			WARN("Expected fewer instructions during encode");
+			return RAVE__ETRANSFORM;
+		}
+	}
+
+	return RAVE__SUCCESS;
+}
+
+static int permute(struct transformable *tf, struct window *fw)
 {
 	struct instr_set *set;
+	size_t nr_slots = tf->prologue.nr_instrs;
+	int eorder[nr_slots];
 	int rc;
 
-	/* Identity encode the prologue */
+	shuffle(tf->order, nr_slots);
+
+	/* Do the prologue first */
 	set = &tf->prologue;
-	rc = instr_set_encode(set, window_view(fw, set->start, NULL));
+	rc = instr_set_encode_order(set, window_view(fw, set->start, NULL),
+		tf->order);
 	if (rc != RAVE__SUCCESS) {
 		ERROR("Could not encode prologue @ 0x%"PRIxPTR" size = %d",
 			set->start, (int)(set->end - set->start));
 		return rc;
 	}
 
+	/* We have to transform the order vector to maintian correctness since the
+	 * epilogue mirrors the prologue. */
+	for (size_t i = 0; i < nr_slots; i++) {
+		eorder[i] = (nr_slots - 1) - tf->order[(nr_slots - 1) - i];
+	}
+
 	/* Encode all the epilogues */
 	list_for_each_entry(set, &tf->epilogues, l) {
-		rc = instr_set_encode(set, window_view(fw, set->start, NULL));
+		rc = instr_set_encode_order(set, window_view(fw, set->start, NULL),
+			eorder);
 		if (rc != RAVE__SUCCESS) {
 			ERROR("Could not encode instruction set @ 0x%"PRIxPTR" size = %d",
 				set->start, (int)(set->end - set->start));
@@ -485,7 +560,7 @@ int transform_permute_all(struct transform *self, struct window *text)
 		bytes = window_view(text, tf->record.addr, NULL);
 		window_init(&fw, tf->record.addr, bytes, tf->record.len);
 
-		rc = identity(tf, &fw);
+		rc = permute(tf, &fw);
 		if (rc != RAVE__SUCCESS) {
 			return rc;
 		}

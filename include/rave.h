@@ -29,6 +29,7 @@ int rave_randomize(rave_handle_t self);
 int rave_relocate(rave_handle_t self, uintptr_t address);
 void *rave_handle_fault(rave_handle_t self, uintptr_t address);
 void *rave_get_code(rave_handle_t self, size_t *length);
+void *rave_get_text(struct rave_handle *self, size_t *length);
 
 #ifdef __cplusplus
 }
