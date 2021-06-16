@@ -21,7 +21,7 @@ find_path(DYNAMORIO_INC_DIR
 )
 
 # Library
-add_library(rave STATIC
+add_library(rave SHARED
 	rave.c
 	binary.c
 	section.c
@@ -49,7 +49,6 @@ target_link_libraries(rave PRIVATE
 	${ZLIB_LIBRARIES}
 	${DYNAMORIO_LIB_DIR}/libdrdecode.a
 	${DYNAMORIO_LIB_DIR}/../libdrlibc.a
-	-static
 )
 
 set_target_properties(rave PROPERTIES PUBLIC_HEADER

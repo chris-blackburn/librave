@@ -1,7 +1,6 @@
 add_compile_options(
 	"-Wall"
 	"-Werror"
-	-static
 )
 link_libraries(rave)
 
