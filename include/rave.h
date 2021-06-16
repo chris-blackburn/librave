@@ -30,6 +30,7 @@ int rave_relocate(rave_handle_t self, uintptr_t address);
 void *rave_handle_fault(rave_handle_t self, uintptr_t address);
 void *rave_get_code(rave_handle_t self, size_t *length);
 void *rave_get_text(struct rave_handle *self, size_t *length);
+size_t rave_get_text_offset(struct rave_handle *self);
 
 #ifdef __cplusplus
 }

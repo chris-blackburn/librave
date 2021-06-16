@@ -15,6 +15,7 @@
 
 // TODO: don't just use macros - allow user to swap in their own mm functions
 #define rave_malloc(x) malloc(x)
+#define rave_calloc(...) calloc(__VA_ARGS__)
 #define rave_free(x) ({if (x) free(x);})
 
 #endif /* __MEMORY_H_ */

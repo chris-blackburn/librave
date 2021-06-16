@@ -15,7 +15,7 @@ void shuffle(int *arr, size_t nmemb)
 {
 	int rnd;
 
-	for (size_t i = 0; i < nmemb - 2; i++) {
+	for (size_t i = 0; i < nmemb - 1; i++) {
 		rnd = i + (rand() % (nmemb - i));
 		swap(&arr[i], &arr[rnd]);
 	}

@@ -112,11 +112,10 @@ static int map_code_pages(struct rave_handle *self, struct section *text,
 	length = PAGE_UP(segment_memsz(segment));
 
 	/* Map a mock region for the executable segment which we can modify */
-	mapping = mmap(NULL, length, PROT_READ | PROT_WRITE,
-		MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-	if (MAP_FAILED == mapping) {
+	mapping = rave_calloc(1, length);
+	if (NULL == mapping) {
 		FATAL("Could not map code segment");
-		return RAVE__EMAP_FAILED;
+		return RAVE__ENOMEM;
 	}
 
 	/* Copy the segment from the binary file */
@@ -224,7 +223,6 @@ err:
 int rave_close(struct rave_handle *self)
 {
 	void *code_mapping;
-	size_t code_length;
 	int rc = 0;
 
 	if (NULL == self) {
@@ -233,11 +231,9 @@ int rave_close(struct rave_handle *self)
 
 	DEBUG("Closing rave handle...");
 
-	code_mapping = window_get(&self->code.segment, &code_length);
+	code_mapping = window_get(&self->code.segment, NULL);
 	if (code_mapping) {
-		if (munmap(code_mapping, code_length) != 0) {
-			WARN("Couldn't unmap code mapping");
-		}
+		rave_free(code_mapping);
 	}
 
 	rc |= mop->close(self->metadata);
@@ -323,4 +319,13 @@ void *rave_get_text(struct rave_handle *self, size_t *length)
 
 	vaddr = window_orig(&self->code.text);
 	return window_view(&self->code.text, vaddr, length);
+}
+
+size_t rave_get_text_offset(struct rave_handle *self)
+{
+	if (NULL == self) {
+		return 0;
+	}
+
+	return window_orig(&self->code.text);
 }

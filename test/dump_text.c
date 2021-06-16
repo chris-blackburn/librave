@@ -10,7 +10,7 @@ int main(int argc, char **argv) {
 	int rc;
 
 	if (argc != 3) {
-		fprintf(stderr, "Please provide a binary name and an output file\n");
+		fprintf(stderr, "Please provide a binary name\n");
 		goto err;
 	}
 
@@ -38,10 +38,9 @@ int main(int argc, char **argv) {
 		goto err;
 	}
 
-
 	/* Dump executable segment to output file */
 	if (fwrite(text, 1, length, dump) != length) {
-		fprintf(stderr, "Error writing to dump file\n");
+		fprintf(stderr, "Error writing to dump file (%d)\n", ferror(dump));
 		goto err;
 	}
 
